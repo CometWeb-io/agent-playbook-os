@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "agent-playbook-os/queue-stats/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "queue_name": {
+      "title": "Queue Name",
+      "type": "string"
+    },
+    "total": {
+      "title": "Total",
+      "type": "integer"
+    },
+    "by_status": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "By Status",
+      "type": "object"
+    }
+  },
+  "required": [
+    "queue_name",
+    "total"
+  ],
+  "title": "QueueStats",
+  "type": "object"
+}

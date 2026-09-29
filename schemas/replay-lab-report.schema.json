@@ -1,0 +1,188 @@
+{
+  "$defs": {
+    "LabSample": {
+      "additionalProperties": false,
+      "properties": {
+        "variant": {
+          "title": "Variant",
+          "type": "string"
+        },
+        "repeat": {
+          "title": "Repeat",
+          "type": "integer"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "output_hash": {
+          "title": "Output Hash",
+          "type": "string"
+        },
+        "wall_ms": {
+          "title": "Wall Ms",
+          "type": "number"
+        },
+        "cost_usd": {
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "model_calls": {
+          "title": "Model Calls",
+          "type": "integer"
+        },
+        "tool_calls": {
+          "title": "Tool Calls",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "variant",
+        "repeat",
+        "run_id",
+        "status",
+        "output_hash",
+        "wall_ms",
+        "cost_usd",
+        "model_calls",
+        "tool_calls"
+      ],
+      "title": "LabSample",
+      "type": "object"
+    },
+    "VariantDelta": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "title": "Baseline",
+          "type": "string"
+        },
+        "candidate": {
+          "title": "Candidate",
+          "type": "string"
+        },
+        "status_match": {
+          "title": "Status Match",
+          "type": "boolean"
+        },
+        "output_hash_match": {
+          "title": "Output Hash Match",
+          "type": "boolean"
+        },
+        "median_ms_delta": {
+          "title": "Median Ms Delta",
+          "type": "number"
+        },
+        "total_cost_delta_usd": {
+          "title": "Total Cost Delta Usd",
+          "type": "number"
+        }
+      },
+      "required": [
+        "baseline",
+        "candidate",
+        "status_match",
+        "output_hash_match",
+        "median_ms_delta",
+        "total_cost_delta_usd"
+      ],
+      "title": "VariantDelta",
+      "type": "object"
+    },
+    "VariantReport": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "repeats": {
+          "title": "Repeats",
+          "type": "integer"
+        },
+        "completed": {
+          "title": "Completed",
+          "type": "integer"
+        },
+        "failed": {
+          "title": "Failed",
+          "type": "integer"
+        },
+        "output_hashes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Output Hashes",
+          "type": "array"
+        },
+        "output_consistency": {
+          "title": "Output Consistency",
+          "type": "number"
+        },
+        "median_ms": {
+          "title": "Median Ms",
+          "type": "number"
+        },
+        "p95_ms": {
+          "title": "P95 Ms",
+          "type": "number"
+        },
+        "total_cost_usd": {
+          "title": "Total Cost Usd",
+          "type": "number"
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/LabSample"
+          },
+          "title": "Samples",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "repeats",
+        "completed",
+        "failed",
+        "output_consistency",
+        "median_ms",
+        "p95_ms",
+        "total_cost_usd"
+      ],
+      "title": "VariantReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "baseline": {
+      "title": "Baseline",
+      "type": "string"
+    },
+    "variants": {
+      "items": {
+        "$ref": "#/$defs/VariantReport"
+      },
+      "title": "Variants",
+      "type": "array"
+    },
+    "deltas": {
+      "items": {
+        "$ref": "#/$defs/VariantDelta"
+      },
+      "title": "Deltas",
+      "type": "array"
+    }
+  },
+  "required": [
+    "baseline",
+    "variants",
+    "deltas"
+  ],
+  "title": "ReplayLabReport",
+  "type": "object"
+}

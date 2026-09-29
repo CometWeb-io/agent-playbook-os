@@ -1,0 +1,14 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: remote-schema-unpinned
+  version: 0.4.0
+  description: Adversarial fixture proving remote schemas require a content hash pin.
+spec:
+  steps:
+    - id: unsafe-schema
+      type: action
+      action: set
+      output_schema: https://schemas.example.invalid/result.json
+      with:
+        value: {ok: true}

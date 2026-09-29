@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evidence Graph v2 handoff shape",
+  "description": "Shape validation for the evidence-to-decision example, not verification of claim truth or research sufficiency. Aligned with agent-skills/evidence-researcher references/evidence-graph.md.",
+  "type": "object",
+  "required": ["schema_version", "research_id", "research_contract", "research_status", "claims", "sources", "evidence", "contradictions", "searches", "gaps"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "research_id": {"type": "string", "minLength": 1},
+    "research_contract": {"type": "object"},
+    "research_status": {"enum": ["READY", "PARTIAL", "REFRESH_REQUIRED", "BLOCKED_BY_CONTRADICTION"]},
+    "claims": {"type": "array", "items": {"type": "object"}},
+    "sources": {"type": "array", "items": {"type": "object"}},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "contradictions": {"type": "array", "items": {"type": "object"}},
+    "searches": {"type": "array", "items": {"type": "object"}},
+    "gaps": {"type": "array", "items": {"type": "object"}},
+    "stop_reason": {"type": ["string", "null"]}
+  }
+}

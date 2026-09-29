@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "InvocationStatus": {
+      "enum": [
+        "STARTED",
+        "UNKNOWN",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED",
+        "RECONCILED"
+      ],
+      "title": "InvocationStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "invocation_id": {
+      "title": "Invocation Id",
+      "type": "string"
+    },
+    "step_id": {
+      "title": "Step Id",
+      "type": "string"
+    },
+    "attempt": {
+      "minimum": 1,
+      "title": "Attempt",
+      "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "skill",
+        "action",
+        "agent",
+        "eval"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "side_effects": {
+      "default": "none",
+      "enum": [
+        "none",
+        "local",
+        "external",
+        "destructive"
+      ],
+      "title": "Side Effects",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Idempotency Key"
+    },
+    "status": {
+      "$ref": "#/$defs/InvocationStatus",
+      "default": "STARTED"
+    },
+    "started_at": {
+      "title": "Started At",
+      "type": "string"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "result_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Result Hash"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    },
+    "reconciled_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reconciled By"
+    },
+    "reconciliation_note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reconciliation Note"
+    },
+    "provider_receipt_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Provider Receipt Ids",
+      "type": "array"
+    },
+    "provider_call_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Call Id"
+    },
+    "provider": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider"
+    }
+  },
+  "required": [
+    "step_id",
+    "attempt",
+    "kind"
+  ],
+  "title": "InvocationRecord",
+  "type": "object"
+}

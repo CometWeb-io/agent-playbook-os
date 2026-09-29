@@ -1,0 +1,50 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: evidence-to-decision
+  version: 0.6.0
+  description: Verify consequential claims before a governed decision.
+  tags: [research, decision]
+
+spec:
+  inputs:
+    question: {type: string, required: true}
+
+  dependencies:
+    skills:
+      evidence-researcher:
+        source: github:CometWeb-io/agent-skills
+      ai-council:
+        source: github:CometWeb-io/agent-skills
+
+  execution:
+    control: deterministic
+    isolation: auto
+    max_steps: 10
+
+  steps:
+    - id: research
+      type: skill
+      uses: evidence-researcher
+      output_schema: contracts/evidence-pack-v2.json
+      with:
+        question: "{{ inputs.question }}"
+
+    - id: evidence-ready
+      type: gate
+      gate: condition
+      needs: [research]
+      condition: "steps.research.output.research_status == 'READY'"
+      on_fail: stop
+
+    - id: decision
+      type: skill
+      uses: ai-council
+      needs: [evidence-ready, research]
+      with:
+        question: "{{ inputs.question }}"
+        evidence: "{{ steps.research.output }}"
+      execution_isolation: subagent
+
+  outputs:
+    decision: "{{ steps.decision.output }}"

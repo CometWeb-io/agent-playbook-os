@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "agent-playbook-os/tenant-scope/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tenant_id": {
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "namespace": {
+      "default": "default",
+      "title": "Namespace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tenant_id"
+  ],
+  "title": "TenantScope",
+  "type": "object"
+}

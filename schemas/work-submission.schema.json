@@ -1,0 +1,84 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "agent-playbook-os/work-submission/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "work_id": {
+      "title": "Work Id",
+      "type": "string"
+    },
+    "queue_name": {
+      "default": "default",
+      "title": "Queue Name",
+      "type": "string"
+    },
+    "tenant_id": {
+      "default": "default",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "namespace": {
+      "default": "default",
+      "title": "Namespace",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "plan_path": {
+      "title": "Plan Path",
+      "type": "string"
+    },
+    "run_dir": {
+      "title": "Run Dir",
+      "type": "string"
+    },
+    "store_backend": {
+      "default": "filesystem",
+      "title": "Store Backend",
+      "type": "string"
+    },
+    "required_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    },
+    "approvals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Approvals",
+      "type": "array"
+    },
+    "approval_actor": {
+      "default": "worker",
+      "title": "Approval Actor",
+      "type": "string"
+    },
+    "max_attempts": {
+      "default": 3,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Max Attempts",
+      "type": "integer"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "run_id",
+    "plan_path",
+    "run_dir"
+  ],
+  "title": "WorkSubmission",
+  "type": "object"
+}

@@ -1,0 +1,347 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "artifact",
+          "title": "Kind",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        },
+        "media_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Type"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "produced_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Produced By"
+        }
+      },
+      "required": [
+        "id",
+        "uri"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        }
+      },
+      "required": [
+        "id",
+        "uri"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "ProviderReceipt": {
+      "additionalProperties": false,
+      "description": "Provider acknowledgement persisted separately from the model/tool payload.\n\nA receipt is evidence that a provider assigned an identity to an invocation. It is\nnot, by itself, proof that a requested side effect reached the user's target state.\nAdapters should set ``status=completed`` only when the provider's contract makes\nthat statement defensible.",
+      "properties": {
+        "receipt_id": {
+          "title": "Receipt Id",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "status": {
+          "default": "accepted",
+          "enum": [
+            "accepted",
+            "completed",
+            "unknown",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "received_at": {
+          "title": "Received At",
+          "type": "string"
+        },
+        "payload_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload Hash"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "provider",
+        "call_id"
+      ],
+      "title": "ProviderReceipt",
+      "type": "object"
+    },
+    "UsageMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "total_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Attempts",
+          "type": "integer"
+        },
+        "action_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Action Calls",
+          "type": "integer"
+        },
+        "skill_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Skill Calls",
+          "type": "integer"
+        },
+        "agent_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Agent Calls",
+          "type": "integer"
+        },
+        "eval_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Eval Calls",
+          "type": "integer"
+        },
+        "model_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Model Calls",
+          "type": "integer"
+        },
+        "tool_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tool Calls",
+          "type": "integer"
+        },
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "cost_usd": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "wall_time_seconds": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Wall Time Seconds",
+          "type": "number"
+        }
+      },
+      "title": "UsageMetrics",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Provider-neutral event emitted by a streaming runtime.",
+  "properties": {
+    "type": {
+      "enum": [
+        "progress",
+        "usage",
+        "artifact",
+        "evidence",
+        "receipt",
+        "result",
+        "log"
+      ],
+      "title": "Type",
+      "type": "string"
+    },
+    "value": {
+      "default": null,
+      "title": "Value"
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UsageMetrics"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "artifact": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "evidence_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvidenceRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "receipt": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProviderReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "title": "RuntimeStreamEvent",
+  "type": "object"
+}

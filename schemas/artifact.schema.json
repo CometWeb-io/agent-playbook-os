@@ -1,0 +1,60 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "default": "artifact",
+      "title": "Kind",
+      "type": "string"
+    },
+    "uri": {
+      "title": "Uri",
+      "type": "string"
+    },
+    "media_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Media Type"
+    },
+    "content_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Hash"
+    },
+    "produced_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Produced By"
+    }
+  },
+  "required": [
+    "id",
+    "uri"
+  ],
+  "title": "ArtifactRef",
+  "type": "object"
+}

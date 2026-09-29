@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_hash": {
+      "title": "Candidate Hash",
+      "type": "string"
+    },
+    "playbook_id": {
+      "title": "Playbook Id",
+      "type": "string"
+    },
+    "playbook_version": {
+      "title": "Playbook Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "goal": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Goal"
+    },
+    "plan_semantic_hash": {
+      "title": "Plan Semantic Hash",
+      "type": "string"
+    },
+    "observed_at": {
+      "title": "Observed At",
+      "type": "string"
+    },
+    "prev_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prev Hash"
+    },
+    "record_hash": {
+      "default": "pending",
+      "title": "Record Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_hash",
+    "playbook_id",
+    "playbook_version",
+    "run_id",
+    "status",
+    "plan_semantic_hash"
+  ],
+  "title": "PromotionObservation",
+  "type": "object"
+}

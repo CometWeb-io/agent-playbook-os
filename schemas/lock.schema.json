@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "SkillLockEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "resolved": {
+          "default": false,
+          "title": "Resolved",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "source"
+      ],
+      "title": "SkillLockEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "agent-playbook-os/lock/v2",
+      "default": "agent-playbook-os/lock/v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "playbook_id": {
+      "title": "Playbook Id",
+      "type": "string"
+    },
+    "playbook_version": {
+      "title": "Playbook Version",
+      "type": "string"
+    },
+    "playbook_hash": {
+      "title": "Playbook Hash",
+      "type": "string"
+    },
+    "plan_integrity_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Plan Integrity Hash"
+    },
+    "plan_semantic_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Plan Semantic Hash"
+    },
+    "skills": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SkillLockEntry"
+      },
+      "title": "Skills",
+      "type": "object"
+    }
+  },
+  "required": [
+    "playbook_id",
+    "playbook_version",
+    "playbook_hash"
+  ],
+  "title": "PlaybookLock",
+  "type": "object"
+}

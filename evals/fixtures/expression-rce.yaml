@@ -1,0 +1,14 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: expression-rce
+  version: 0.4.0
+  description: Adversarial fixture proving expression function calls are rejected.
+spec:
+  steps:
+    - id: unsafe
+      type: action
+      action: set
+      when: "__import__('os').system('id') == 0"
+      with:
+        value: blocked

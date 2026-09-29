@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "uri": {
+      "title": "Uri",
+      "type": "string"
+    },
+    "schema_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Schema Ref"
+    },
+    "content_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Hash"
+    },
+    "observed_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed At"
+    }
+  },
+  "required": [
+    "id",
+    "uri"
+  ],
+  "title": "EvidenceRef",
+  "type": "object"
+}

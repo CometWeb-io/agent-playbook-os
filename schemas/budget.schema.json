@@ -1,0 +1,164 @@
+{
+  "additionalProperties": false,
+  "description": "Hard execution ceilings. None means unbounded at this layer.",
+  "properties": {
+    "max_run_seconds": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Run Seconds"
+    },
+    "max_step_seconds": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Step Seconds"
+    },
+    "max_total_attempts": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Total Attempts"
+    },
+    "max_action_calls": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Action Calls"
+    },
+    "max_skill_calls": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Skill Calls"
+    },
+    "max_agent_calls": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Agent Calls"
+    },
+    "max_eval_calls": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Eval Calls"
+    },
+    "max_model_calls": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Model Calls"
+    },
+    "max_tool_calls": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Tool Calls"
+    },
+    "max_input_tokens": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Input Tokens"
+    },
+    "max_output_tokens": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Output Tokens"
+    },
+    "max_cost_usd": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Cost Usd"
+    }
+  },
+  "title": "BudgetSpec",
+  "type": "object"
+}

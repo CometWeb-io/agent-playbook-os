@@ -1,0 +1,36 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: cometweb-14-day-plan
+  version: 0.6.0
+  description: Refresh CometWeb context and produce a bounded 14-day product plan with optional specialist re-entry.
+  tags: [cometweb, product, planning]
+
+spec:
+  inputs:
+    goal:
+      type: string
+      required: true
+
+  dependencies:
+    skills:
+      cometweb-context: {source: github:CometWeb-io/agent-skills}
+      product-operator: {source: github:CometWeb-io/agent-skills}
+
+  steps:
+    - id: context
+      type: skill
+      uses: cometweb-context
+      with:
+        goal: "{{ inputs.goal }}"
+
+    - id: plan
+      type: skill
+      uses: product-operator
+      needs: [context]
+      with:
+        goal: "{{ inputs.goal }}"
+        context: "{{ steps.context.output }}"
+
+  outputs:
+    plan: "{{ steps.plan.output }}"

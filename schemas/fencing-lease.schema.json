@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "agent-playbook-os/fencing-lease/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "resource": {
+      "title": "Resource",
+      "type": "string"
+    },
+    "owner": {
+      "title": "Owner",
+      "type": "string"
+    },
+    "token": {
+      "title": "Token",
+      "type": "string"
+    },
+    "fence": {
+      "title": "Fence",
+      "type": "integer"
+    },
+    "acquired_at": {
+      "title": "Acquired At",
+      "type": "number"
+    },
+    "heartbeat_at": {
+      "title": "Heartbeat At",
+      "type": "number"
+    },
+    "ttl_seconds": {
+      "title": "Ttl Seconds",
+      "type": "number"
+    }
+  },
+  "required": [
+    "resource",
+    "owner",
+    "token",
+    "fence",
+    "acquired_at",
+    "heartbeat_at",
+    "ttl_seconds"
+  ],
+  "title": "FencingLease",
+  "type": "object"
+}

@@ -1,0 +1,64 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: kernel-demo
+  version: 0.6.0
+  description: Executable kernel demo with branch, human gate, action and eval.
+  tags: [demo, conformance]
+
+spec:
+  inputs:
+    name:
+      type: string
+      required: true
+
+  execution:
+    control: deterministic
+    isolation: inline
+    max_steps: 10
+
+  policy:
+    denied_actions: []
+    require_approval_for: [external, destructive]
+
+  steps:
+    - id: greeting
+      type: action
+      action: set
+      with:
+        value:
+          message: "Hello {{ inputs.name }}"
+          ready: true
+
+    - id: choose
+      type: branch
+      needs: [greeting]
+      cases:
+        - when: "steps.greeting.output.ready == True"
+          value: proceed
+      default: stop
+
+    - id: approval
+      type: gate
+      gate: human
+      needs: [choose]
+      when: "steps.choose.output.selected == 'proceed'"
+      description: Demonstrates resumable human approval.
+
+    - id: final
+      type: action
+      action: set
+      needs: [approval]
+      with:
+        value:
+          result: "approved for {{ inputs.name }}"
+
+    - id: verify
+      type: eval
+      needs: [final]
+      with:
+        actual: "{{ steps.final.output.result }}"
+        expected: "approved for {{ inputs.name }}"
+
+  outputs:
+    result: "{{ steps.final.output.result }}"

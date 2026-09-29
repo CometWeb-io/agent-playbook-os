@@ -1,0 +1,31 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: bounded-refinement
+  version: 0.6.0
+  description: Demonstrates a durable bounded while loop for iterative refinement workflows.
+  tags: [example, refinement, loop]
+spec:
+  inputs:
+    rounds:
+      type: integer
+      required: true
+  execution:
+    max_loop_iterations: 5
+  policy:
+    max_loop_iterations: 5
+  steps:
+    - id: refine
+      type: while
+      condition: loop.iteration < inputs.rounds
+      max_iterations: 5
+      do:
+        - id: snapshot
+          type: action
+          action: set
+          with:
+            value:
+              iteration: "{{ loop.iteration }}"
+              previous: "{{ loop.previous }}"
+  outputs:
+    result: "{{ steps.refine.output }}"

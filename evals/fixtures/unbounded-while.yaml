@@ -1,0 +1,17 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: unbounded-while
+  version: 0.5.0
+  description: Adversarial fixture proving while loops require an explicit iteration bound.
+spec:
+  steps:
+    - id: unsafe-loop
+      type: while
+      condition: "True"
+      do:
+        - id: noop
+          type: action
+          action: set
+          with:
+            value: x

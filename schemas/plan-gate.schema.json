@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "CapabilityRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "required_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required By",
+          "type": "array"
+        },
+        "mandatory": {
+          "default": true,
+          "title": "Mandatory",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "title": "CapabilityRequirement",
+      "type": "object"
+    },
+    "NegotiationReport": {
+      "additionalProperties": false,
+      "properties": {
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "requirements": {
+          "items": {
+            "$ref": "#/$defs/CapabilityRequirement"
+          },
+          "title": "Requirements",
+          "type": "array"
+        },
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "available": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Available",
+          "type": "array"
+        }
+      },
+      "required": [
+        "passed"
+      ],
+      "title": "NegotiationReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "source": {
+      "enum": [
+        "catalog",
+        "ephemeral"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "playbook_id": {
+      "title": "Playbook Id",
+      "type": "string"
+    },
+    "playbook_version": {
+      "title": "Playbook Version",
+      "type": "string"
+    },
+    "plan_semantic_hash": {
+      "title": "Plan Semantic Hash",
+      "type": "string"
+    },
+    "negotiation": {
+      "$ref": "#/$defs/NegotiationReport"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "passed",
+    "source",
+    "playbook_id",
+    "playbook_version",
+    "plan_semantic_hash",
+    "negotiation"
+  ],
+  "title": "PlanGateReport",
+  "type": "object"
+}

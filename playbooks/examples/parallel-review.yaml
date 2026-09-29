@@ -1,0 +1,41 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: parallel-review
+  version: 0.6.0
+  description: Demonstrate isolated review branches without making multi-agent the top-level architecture.
+  tags: [review, parallel]
+
+spec:
+  inputs:
+    artifact: {type: object, required: true}
+
+  execution:
+    max_parallel: 3
+
+  dependencies:
+    skills:
+      evidence-researcher: {source: github:CometWeb-io/agent-skills}
+
+  steps:
+    - id: independent-reviews
+      type: parallel
+      branches:
+        evidence:
+          - id: evidence-review
+            type: skill
+            uses: evidence-researcher
+            with:
+              artifact: "{{ inputs.artifact }}"
+            execution_isolation: subagent
+        adversarial:
+          - id: red-team
+            type: agent
+            description: Challenge unsupported assumptions independently.
+            with:
+              objective: Challenge unsupported assumptions in the supplied artifact.
+              artifact: "{{ inputs.artifact }}"
+            execution_isolation: subagent
+
+  outputs:
+    reviews: "{{ steps.independent-reviews.output }}"

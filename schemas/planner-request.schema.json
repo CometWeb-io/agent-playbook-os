@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "goal": {
+      "title": "Goal",
+      "type": "string"
+    },
+    "catalog": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Catalog",
+      "type": "array"
+    },
+    "context": {
+      "additionalProperties": true,
+      "title": "Context",
+      "type": "object"
+    },
+    "constraints": {
+      "additionalProperties": true,
+      "title": "Constraints",
+      "type": "object"
+    }
+  },
+  "required": [
+    "goal"
+  ],
+  "title": "PlannerRequest",
+  "type": "object"
+}

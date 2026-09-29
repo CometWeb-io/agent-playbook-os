@@ -1,0 +1,69 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_hash": {
+      "title": "Candidate Hash",
+      "type": "string"
+    },
+    "observations": {
+      "title": "Observations",
+      "type": "integer"
+    },
+    "successes": {
+      "title": "Successes",
+      "type": "integer"
+    },
+    "failures": {
+      "title": "Failures",
+      "type": "integer"
+    },
+    "run_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Run Ids",
+      "type": "array"
+    },
+    "ready": {
+      "title": "Ready",
+      "type": "boolean"
+    },
+    "min_successes": {
+      "title": "Min Successes",
+      "type": "integer"
+    },
+    "distinct_goals": {
+      "default": 0,
+      "title": "Distinct Goals",
+      "type": "integer"
+    },
+    "min_distinct_goals": {
+      "default": 1,
+      "title": "Min Distinct Goals",
+      "type": "integer"
+    },
+    "registry_head_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Registry Head Hash"
+    }
+  },
+  "required": [
+    "candidate_hash",
+    "observations",
+    "successes",
+    "failures",
+    "run_ids",
+    "ready",
+    "min_successes"
+  ],
+  "title": "PromotionSummary",
+  "type": "object"
+}

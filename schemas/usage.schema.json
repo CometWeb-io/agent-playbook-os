@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "total_attempts": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Total Attempts",
+      "type": "integer"
+    },
+    "action_calls": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Action Calls",
+      "type": "integer"
+    },
+    "skill_calls": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Skill Calls",
+      "type": "integer"
+    },
+    "agent_calls": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Agent Calls",
+      "type": "integer"
+    },
+    "eval_calls": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Eval Calls",
+      "type": "integer"
+    },
+    "model_calls": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Model Calls",
+      "type": "integer"
+    },
+    "tool_calls": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Tool Calls",
+      "type": "integer"
+    },
+    "input_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Input Tokens",
+      "type": "integer"
+    },
+    "output_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Output Tokens",
+      "type": "integer"
+    },
+    "cost_usd": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Cost Usd",
+      "type": "number"
+    },
+    "wall_time_seconds": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Wall Time Seconds",
+      "type": "number"
+    }
+  },
+  "title": "UsageMetrics",
+  "type": "object"
+}

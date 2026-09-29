@@ -1,0 +1,70 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_hash": {
+      "title": "Candidate Hash",
+      "type": "string"
+    },
+    "destination": {
+      "title": "Destination",
+      "type": "string"
+    },
+    "promoted_at": {
+      "title": "Promoted At",
+      "type": "string"
+    },
+    "actor": {
+      "title": "Actor",
+      "type": "string"
+    },
+    "observations": {
+      "title": "Observations",
+      "type": "integer"
+    },
+    "successes": {
+      "title": "Successes",
+      "type": "integer"
+    },
+    "source_playbook_id": {
+      "title": "Source Playbook Id",
+      "type": "string"
+    },
+    "source_playbook_version": {
+      "title": "Source Playbook Version",
+      "type": "string"
+    },
+    "promoted_playbook_id": {
+      "title": "Promoted Playbook Id",
+      "type": "string"
+    },
+    "promoted_playbook_version": {
+      "title": "Promoted Playbook Version",
+      "type": "string"
+    },
+    "registry_head_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Registry Head Hash"
+    }
+  },
+  "required": [
+    "candidate_hash",
+    "destination",
+    "actor",
+    "observations",
+    "successes",
+    "source_playbook_id",
+    "source_playbook_version",
+    "promoted_playbook_id",
+    "promoted_playbook_version"
+  ],
+  "title": "PromotionReceipt",
+  "type": "object"
+}

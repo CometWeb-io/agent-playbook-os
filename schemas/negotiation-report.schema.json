@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "CapabilityRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "required_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required By",
+          "type": "array"
+        },
+        "mandatory": {
+          "default": true,
+          "title": "Mandatory",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "title": "CapabilityRequirement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/CapabilityRequirement"
+      },
+      "title": "Requirements",
+      "type": "array"
+    },
+    "missing": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "available": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Available",
+      "type": "array"
+    }
+  },
+  "required": [
+    "passed"
+  ],
+  "title": "NegotiationReport",
+  "type": "object"
+}

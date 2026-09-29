@@ -1,0 +1,980 @@
+{
+  "$defs": {
+    "BranchCase": {
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "title": "When",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        }
+      },
+      "required": [
+        "when",
+        "value"
+      ],
+      "title": "BranchCase",
+      "type": "object"
+    },
+    "BudgetSpec": {
+      "additionalProperties": false,
+      "description": "Hard execution ceilings. None means unbounded at this layer.",
+      "properties": {
+        "max_run_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Run Seconds"
+        },
+        "max_step_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Step Seconds"
+        },
+        "max_total_attempts": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Total Attempts"
+        },
+        "max_action_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Action Calls"
+        },
+        "max_skill_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Skill Calls"
+        },
+        "max_agent_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Agent Calls"
+        },
+        "max_eval_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Eval Calls"
+        },
+        "max_model_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Model Calls"
+        },
+        "max_tool_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tool Calls"
+        },
+        "max_input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Input Tokens"
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Output Tokens"
+        },
+        "max_cost_usd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost Usd"
+        }
+      },
+      "title": "BudgetSpec",
+      "type": "object"
+    },
+    "Dependencies": {
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SkillDependency"
+          },
+          "title": "Skills",
+          "type": "object"
+        }
+      },
+      "title": "Dependencies",
+      "type": "object"
+    },
+    "ExecutionConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "default": "deterministic",
+          "enum": [
+            "deterministic",
+            "adaptive"
+          ],
+          "title": "Control",
+          "type": "string"
+        },
+        "isolation": {
+          "default": "auto",
+          "enum": [
+            "inline",
+            "sandbox",
+            "subagent",
+            "auto"
+          ],
+          "title": "Isolation",
+          "type": "string"
+        },
+        "max_steps": {
+          "default": 50,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "max_parallel": {
+          "default": 4,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Max Parallel",
+          "type": "integer"
+        },
+        "max_foreach_items": {
+          "default": 100,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Max Foreach Items",
+          "type": "integer"
+        },
+        "max_loop_iterations": {
+          "default": 10,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Loop Iterations",
+          "type": "integer"
+        },
+        "max_attempts": {
+          "default": 2,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "budget": {
+          "$ref": "#/$defs/BudgetSpec"
+        }
+      },
+      "title": "ExecutionConfig",
+      "type": "object"
+    },
+    "InputDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "default": "string",
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "object",
+            "array"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "sensitive": {
+          "default": false,
+          "title": "Sensitive",
+          "type": "boolean"
+        }
+      },
+      "title": "InputDefinition",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "description"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "PlaybookSpecBody": {
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/InputDefinition"
+          },
+          "title": "Inputs",
+          "type": "object"
+        },
+        "dependencies": {
+          "$ref": "#/$defs/Dependencies"
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionConfig"
+        },
+        "policy": {
+          "$ref": "#/$defs/PolicySpec"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/StepSpec"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "outputs": {
+          "additionalProperties": true,
+          "title": "Outputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "title": "PlaybookSpecBody",
+      "type": "object"
+    },
+    "PolicySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_step_types": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Step Types"
+        },
+        "allowed_skills": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Skills"
+        },
+        "allowed_actions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Actions"
+        },
+        "denied_skills": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Denied Skills",
+          "type": "array"
+        },
+        "denied_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Denied Actions",
+          "type": "array"
+        },
+        "require_approval_for": {
+          "items": {
+            "enum": [
+              "local",
+              "external",
+              "destructive"
+            ],
+            "type": "string"
+          },
+          "title": "Require Approval For",
+          "type": "array"
+        },
+        "require_idempotency_for_retry": {
+          "items": {
+            "enum": [
+              "local",
+              "external",
+              "destructive"
+            ],
+            "type": "string"
+          },
+          "title": "Require Idempotency For Retry",
+          "type": "array"
+        },
+        "max_steps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Steps"
+        },
+        "max_parallel": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Parallel"
+        },
+        "max_foreach_items": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Foreach Items"
+        },
+        "max_loop_iterations": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Loop Iterations"
+        },
+        "require_resolved_skills": {
+          "default": false,
+          "title": "Require Resolved Skills",
+          "type": "boolean"
+        },
+        "require_isolation_for": {
+          "additionalProperties": {
+            "enum": [
+              "sandbox",
+              "subagent"
+            ],
+            "type": "string"
+          },
+          "propertyNames": {
+            "enum": [
+              "local",
+              "external",
+              "destructive"
+            ]
+          },
+          "title": "Require Isolation For",
+          "type": "object"
+        },
+        "budget": {
+          "$ref": "#/$defs/BudgetSpec"
+        }
+      },
+      "title": "PolicySpec",
+      "type": "object"
+    },
+    "RetrySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "default": 1,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "backoff_seconds": {
+          "default": 0.0,
+          "maximum": 300,
+          "minimum": 0,
+          "title": "Backoff Seconds",
+          "type": "number"
+        },
+        "backoff_multiplier": {
+          "default": 1.0,
+          "maximum": 10.0,
+          "minimum": 1.0,
+          "title": "Backoff Multiplier",
+          "type": "number"
+        },
+        "max_backoff_seconds": {
+          "default": 60.0,
+          "maximum": 3600,
+          "minimum": 0,
+          "title": "Max Backoff Seconds",
+          "type": "number"
+        },
+        "retry_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Retry On",
+          "type": "array"
+        }
+      },
+      "title": "RetrySpec",
+      "type": "object"
+    },
+    "SkillDependency": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "SkillDependency",
+      "type": "object"
+    },
+    "StepSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "skill",
+            "action",
+            "agent",
+            "gate",
+            "branch",
+            "parallel",
+            "foreach",
+            "while",
+            "playbook",
+            "eval"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "needs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Needs",
+          "type": "array"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "When"
+        },
+        "on_fail": {
+          "default": "stop",
+          "enum": [
+            "stop",
+            "skip",
+            "continue"
+          ],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "uses": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uses"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action"
+        },
+        "gate": {
+          "anyOf": [
+            {
+              "enum": [
+                "human",
+                "condition",
+                "policy",
+                "evidence",
+                "budget",
+                "review"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gate"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Condition"
+        },
+        "playbook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Playbook"
+        },
+        "with": {
+          "additionalProperties": true,
+          "title": "With",
+          "type": "object"
+        },
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/BranchCase"
+          },
+          "title": "Cases",
+          "type": "array"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "branches": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/StepSpec"
+            },
+            "type": "array"
+          },
+          "title": "Branches",
+          "type": "object"
+        },
+        "items": {
+          "default": null,
+          "title": "Items"
+        },
+        "item_var": {
+          "default": "item",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "title": "Item Var",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/StepSpec"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "do": {
+          "items": {
+            "$ref": "#/$defs/StepSpec"
+          },
+          "title": "Do",
+          "type": "array"
+        },
+        "max_concurrency": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Concurrency"
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Iterations"
+        },
+        "side_effects": {
+          "default": "none",
+          "enum": [
+            "none",
+            "local",
+            "external",
+            "destructive"
+          ],
+          "title": "Side Effects",
+          "type": "string"
+        },
+        "requires_approval": {
+          "default": false,
+          "title": "Requires Approval",
+          "type": "boolean"
+        },
+        "execution_isolation": {
+          "anyOf": [
+            {
+              "enum": [
+                "inline",
+                "sandbox",
+                "subagent",
+                "auto"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Execution Isolation"
+        },
+        "output_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Schema"
+        },
+        "output_schema_hash": {
+          "anyOf": [
+            {
+              "pattern": "^(sha256:)?[a-fA-F0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Schema Hash"
+        },
+        "retry": {
+          "$ref": "#/$defs/RetrySpec"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 86400,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "StepSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "playbook.agent/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Playbook",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/PlaybookSpecBody"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Playbook",
+  "type": "object"
+}

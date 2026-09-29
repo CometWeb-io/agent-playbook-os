@@ -1,0 +1,5 @@
+{"name":"policy-bypass-still-pauses","playbook":"../../playbooks/examples/kernel-demo.yaml","inputs":{"name":"Ada"},"expect":{"status":"WAITING_APPROVAL","step_statuses":{"approval":"WAITING_APPROVAL"},"event_types_include":["gate.approval_required"]}}
+{"name":"expression-function-call-rejected","playbook":"../fixtures/expression-rce.yaml","expect":{"status":"FAILED","step_statuses":{"unsafe":"FAILED"},"error_contains":{"unsafe":"expression node not allowed: Call"}}}
+{"name":"raw-sensitive-input-rejected","playbook":"../fixtures/sensitive-raw.yaml","inputs":{"token":"super-secret-value"},"expect":{"compile_error_contains":"sensitive input token must be a secret reference"}}
+{"name":"remote-schema-without-pin-rejected","playbook":"../fixtures/remote-schema-unpinned.yaml","expect":{"compile_error_contains":"requires output_schema_hash pin"}}
+{"name":"unbounded-while-rejected","playbook":"../fixtures/unbounded-while.yaml","expect":{"compile_error_contains":"while step requires max_iterations"}}

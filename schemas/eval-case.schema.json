@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "EvalExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "compile_error_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Compile Error Contains"
+        },
+        "outputs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outputs"
+        },
+        "step_statuses": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Step Statuses",
+          "type": "object"
+        },
+        "event_types_include": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Event Types Include",
+          "type": "array"
+        },
+        "error_contains": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Error Contains",
+          "type": "object"
+        }
+      },
+      "title": "EvalExpectation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "playbook": {
+      "title": "Playbook",
+      "type": "string"
+    },
+    "inputs": {
+      "additionalProperties": true,
+      "title": "Inputs",
+      "type": "object"
+    },
+    "approvals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Approvals",
+      "type": "array"
+    },
+    "dry_run": {
+      "default": false,
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "expect": {
+      "$ref": "#/$defs/EvalExpectation"
+    }
+  },
+  "required": [
+    "name",
+    "playbook",
+    "expect"
+  ],
+  "title": "EvalCase",
+  "type": "object"
+}

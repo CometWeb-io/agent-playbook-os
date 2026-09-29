@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "EvalCaseResult": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "failures": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failures",
+          "type": "array"
+        },
+        "run_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Dir"
+        }
+      },
+      "required": [
+        "name",
+        "passed"
+      ],
+      "title": "EvalCaseResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "suite": {
+      "title": "Suite",
+      "type": "string"
+    },
+    "total": {
+      "title": "Total",
+      "type": "integer"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "integer"
+    },
+    "failed": {
+      "title": "Failed",
+      "type": "integer"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/EvalCaseResult"
+      },
+      "title": "Cases",
+      "type": "array"
+    }
+  },
+  "required": [
+    "suite",
+    "total",
+    "passed",
+    "failed",
+    "cases"
+  ],
+  "title": "EvalSuiteResult",
+  "type": "object"
+}

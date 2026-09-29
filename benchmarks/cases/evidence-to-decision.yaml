@@ -1,0 +1,22 @@
+id: evidence-to-decision-structural
+playbook: ../../playbooks/examples/evidence-to-decision.yaml
+
+inputs:
+  question: "Should the release candidate proceed?"
+
+skill_library:
+  source: github:CometWeb-io/agent-skills
+  hash: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  skills:
+    - id: evidence-researcher
+      content_hash: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    - id: ai-council
+      content_hash: sha256:3333333333333333333333333333333333333333333333333333333333333333
+
+model:
+  provider: reference
+  name: structural-dry-run
+  config_hash: sha256:4444444444444444444444444444444444444444444444444444444444444444
+
+provider_credentials:
+  api_key: "Bearer do-not-persist-this"

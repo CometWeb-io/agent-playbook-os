@@ -1,0 +1,205 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "agent-playbook-os/work-item/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "work_id": {
+      "title": "Work Id",
+      "type": "string"
+    },
+    "queue_name": {
+      "title": "Queue Name",
+      "type": "string"
+    },
+    "tenant_id": {
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "namespace": {
+      "title": "Namespace",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "plan_path": {
+      "title": "Plan Path",
+      "type": "string"
+    },
+    "run_dir": {
+      "title": "Run Dir",
+      "type": "string"
+    },
+    "store_backend": {
+      "title": "Store Backend",
+      "type": "string"
+    },
+    "required_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    },
+    "approvals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Approvals",
+      "type": "array"
+    },
+    "approval_actor": {
+      "default": "worker",
+      "title": "Approval Actor",
+      "type": "string"
+    },
+    "payload_hash": {
+      "title": "Payload Hash",
+      "type": "string"
+    },
+    "status": {
+      "default": "PENDING",
+      "title": "Status",
+      "type": "string"
+    },
+    "attempts": {
+      "default": 0,
+      "title": "Attempts",
+      "type": "integer"
+    },
+    "max_attempts": {
+      "default": 3,
+      "title": "Max Attempts",
+      "type": "integer"
+    },
+    "available_at": {
+      "title": "Available At",
+      "type": "number"
+    },
+    "claim_token": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Claim Token"
+    },
+    "fence": {
+      "default": 0,
+      "title": "Fence",
+      "type": "integer"
+    },
+    "claimed_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Claimed By"
+    },
+    "claimed_at": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Claimed At"
+    },
+    "heartbeat_at": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Heartbeat At"
+    },
+    "visibility_timeout_seconds": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Visibility Timeout Seconds"
+    },
+    "cancel_requested": {
+      "default": false,
+      "title": "Cancel Requested",
+      "type": "boolean"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Result"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "work_id",
+    "queue_name",
+    "tenant_id",
+    "namespace",
+    "run_id",
+    "plan_path",
+    "run_dir",
+    "store_backend",
+    "payload_hash"
+  ],
+  "title": "WorkItem",
+  "type": "object"
+}

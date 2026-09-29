@@ -1,0 +1,35 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: audit-to-release
+  version: 0.6.0
+  description: Feed observed web QA evidence into a release-candidate gate.
+  tags: [qa, release]
+
+spec:
+  inputs:
+    target: {type: string, required: true}
+    release_candidate: {type: string, required: true}
+
+  dependencies:
+    skills:
+      web-app-auditor: {source: github:CometWeb-io/agent-skills}
+      release-readiness: {source: github:CometWeb-io/agent-skills}
+
+  steps:
+    - id: audit
+      type: skill
+      uses: web-app-auditor
+      with:
+        target: "{{ inputs.target }}"
+
+    - id: release
+      type: skill
+      uses: release-readiness
+      needs: [audit]
+      with:
+        release_candidate: "{{ inputs.release_candidate }}"
+        qa_evidence: "{{ steps.audit.output }}"
+
+  outputs:
+    release: "{{ steps.release.output }}"

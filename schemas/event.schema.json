@@ -1,0 +1,75 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "agent-playbook-os/event/v1",
+      "default": "agent-playbook-os/event/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seq": {
+      "title": "Seq",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "type": {
+      "title": "Type",
+      "type": "string"
+    },
+    "step_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Step Id"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "prev_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prev Hash"
+    },
+    "event_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Hash"
+    }
+  },
+  "required": [
+    "seq",
+    "run_id",
+    "type"
+  ],
+  "title": "Event",
+  "type": "object"
+}

@@ -1,0 +1,5 @@
+# One maintainer reviews everything. The organisation has no teams and no
+# second reviewer. Kept as a user rather than @CometWeb-io/<team>: GitHub
+# ignores an unresolvable team here without reporting an error, which would
+# leave this file silently inert.
+*                       @MaciejZet

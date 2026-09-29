@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "agent-playbook-os/attestation/v1",
+      "default": "agent-playbook-os/attestation/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "plan_integrity_hash": {
+      "title": "Plan Integrity Hash",
+      "type": "string"
+    },
+    "plan_semantic_hash": {
+      "title": "Plan Semantic Hash",
+      "type": "string"
+    },
+    "state_integrity_hash": {
+      "title": "State Integrity Hash",
+      "type": "string"
+    },
+    "event_head_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Head Hash"
+    },
+    "artifact_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Artifact Hashes",
+      "type": "object"
+    },
+    "attested_at": {
+      "title": "Attested At",
+      "type": "string"
+    },
+    "signer": {
+      "default": "local-hmac",
+      "title": "Signer",
+      "type": "string"
+    },
+    "signature": {
+      "default": "pending",
+      "title": "Signature",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "plan_integrity_hash",
+    "plan_semantic_hash",
+    "state_integrity_hash"
+  ],
+  "title": "RunAttestation",
+  "type": "object"
+}

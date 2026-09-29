@@ -1,0 +1,77 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "enum": [
+        "existing",
+        "ephemeral",
+        "none"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "selected_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Id"
+    },
+    "selected_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Version"
+    },
+    "confidence": {
+      "default": "low",
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "rationale": {
+      "title": "Rationale",
+      "type": "string"
+    },
+    "playbook": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Playbook"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "mode",
+    "rationale"
+  ],
+  "title": "PlannerResponse",
+  "type": "object"
+}

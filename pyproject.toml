@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-playbook-os"
+version = "0.6.0"
+description = "Provider-neutral control plane for compiling and executing versioned AI playbooks across skills, tools, policies, gates, and optional isolated agents."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{ name = "Maciej Zmitrukiewicz", email = "hello@cometweb.io" }]
+maintainers = [{ name = "Maciej Zmitrukiewicz", email = "hello@cometweb.io" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+keywords = ["agents", "playbooks", "agent-skills", "workflow", "llm", "orchestration", "evals"]
+dependencies = [
+  "pydantic>=2.8,<3",
+  "PyYAML>=6.0,<7",
+  "jsonschema>=4.22,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "setuptools>=68",
+  "wheel",
+]
+
+[project.scripts]
+playbook = "agent_playbook_os.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/CometWeb-io/agent-playbook-os"
+Repository = "https://github.com/CometWeb-io/agent-playbook-os"
+Issues = "https://github.com/CometWeb-io/agent-playbook-os/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"

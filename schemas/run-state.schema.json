@@ -1,0 +1,860 @@
+{
+  "$defs": {
+    "ApprovalRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "approved_at": {
+          "title": "Approved At",
+          "type": "string"
+        },
+        "actor": {
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "step_id"
+      ],
+      "title": "ApprovalRecord",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "artifact",
+          "title": "Kind",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        },
+        "media_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Type"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "produced_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Produced By"
+        }
+      },
+      "required": [
+        "id",
+        "uri"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        }
+      },
+      "required": [
+        "id",
+        "uri"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "InvocationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "invocation_id": {
+          "title": "Invocation Id",
+          "type": "string"
+        },
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "attempt": {
+          "minimum": 1,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "skill",
+            "action",
+            "agent",
+            "eval"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "side_effects": {
+          "default": "none",
+          "enum": [
+            "none",
+            "local",
+            "external",
+            "destructive"
+          ],
+          "title": "Side Effects",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "status": {
+          "$ref": "#/$defs/InvocationStatus",
+          "default": "STARTED"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "string"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "result_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Hash"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "reconciled_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reconciled By"
+        },
+        "reconciliation_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reconciliation Note"
+        },
+        "provider_receipt_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Provider Receipt Ids",
+          "type": "array"
+        },
+        "provider_call_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Call Id"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        }
+      },
+      "required": [
+        "step_id",
+        "attempt",
+        "kind"
+      ],
+      "title": "InvocationRecord",
+      "type": "object"
+    },
+    "InvocationStatus": {
+      "enum": [
+        "STARTED",
+        "UNKNOWN",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED",
+        "RECONCILED"
+      ],
+      "title": "InvocationStatus",
+      "type": "string"
+    },
+    "ProviderReceipt": {
+      "additionalProperties": false,
+      "description": "Provider acknowledgement persisted separately from the model/tool payload.\n\nA receipt is evidence that a provider assigned an identity to an invocation. It is\nnot, by itself, proof that a requested side effect reached the user's target state.\nAdapters should set ``status=completed`` only when the provider's contract makes\nthat statement defensible.",
+      "properties": {
+        "receipt_id": {
+          "title": "Receipt Id",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "status": {
+          "default": "accepted",
+          "enum": [
+            "accepted",
+            "completed",
+            "unknown",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "received_at": {
+          "title": "Received At",
+          "type": "string"
+        },
+        "payload_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload Hash"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "provider",
+        "call_id"
+      ],
+      "title": "ProviderReceipt",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "CREATED",
+        "RUNNING",
+        "WAITING_INPUT",
+        "WAITING_APPROVAL",
+        "PAUSED",
+        "FAILED",
+        "CANCELLED",
+        "COMPLETED"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "StepState": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/StepStatus",
+          "default": "PENDING"
+        },
+        "attempts": {
+          "default": 0,
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Ms"
+        },
+        "output": {
+          "default": null,
+          "title": "Output"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "approval_required": {
+          "default": false,
+          "title": "Approval Required",
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "usage": {
+          "$ref": "#/$defs/UsageMetrics"
+        },
+        "invocation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invocation Ids",
+          "type": "array"
+        },
+        "provider_receipt_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Provider Receipt Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "StepState",
+      "type": "object"
+    },
+    "StepStatus": {
+      "enum": [
+        "PENDING",
+        "RUNNING",
+        "WAITING_APPROVAL",
+        "COMPLETED",
+        "SKIPPED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "title": "StepStatus",
+      "type": "string"
+    },
+    "UsageMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "total_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Attempts",
+          "type": "integer"
+        },
+        "action_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Action Calls",
+          "type": "integer"
+        },
+        "skill_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Skill Calls",
+          "type": "integer"
+        },
+        "agent_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Agent Calls",
+          "type": "integer"
+        },
+        "eval_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Eval Calls",
+          "type": "integer"
+        },
+        "model_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Model Calls",
+          "type": "integer"
+        },
+        "tool_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tool Calls",
+          "type": "integer"
+        },
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "cost_usd": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "wall_time_seconds": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Wall Time Seconds",
+          "type": "number"
+        }
+      },
+      "title": "UsageMetrics",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "agent-playbook-os/run-state/v5",
+      "default": "agent-playbook-os/run-state/v5",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "integrity_hash": {
+      "default": "pending",
+      "title": "Integrity Hash",
+      "type": "string"
+    },
+    "plan_hash": {
+      "title": "Plan Hash",
+      "type": "string"
+    },
+    "plan_semantic_hash": {
+      "title": "Plan Semantic Hash",
+      "type": "string"
+    },
+    "playbook_hash": {
+      "title": "Playbook Hash",
+      "type": "string"
+    },
+    "playbook_id": {
+      "title": "Playbook Id",
+      "type": "string"
+    },
+    "playbook_version": {
+      "title": "Playbook Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus",
+      "default": "CREATED"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "inputs": {
+      "additionalProperties": true,
+      "title": "Inputs",
+      "type": "object"
+    },
+    "steps": {
+      "additionalProperties": {
+        "$ref": "#/$defs/StepState"
+      },
+      "title": "Steps",
+      "type": "object"
+    },
+    "nested_steps": {
+      "additionalProperties": {
+        "$ref": "#/$defs/StepState"
+      },
+      "title": "Nested Steps",
+      "type": "object"
+    },
+    "invocations": {
+      "items": {
+        "$ref": "#/$defs/InvocationRecord"
+      },
+      "title": "Invocations",
+      "type": "array"
+    },
+    "provider_receipts": {
+      "items": {
+        "$ref": "#/$defs/ProviderReceipt"
+      },
+      "title": "Provider Receipts",
+      "type": "array"
+    },
+    "outputs": {
+      "additionalProperties": true,
+      "title": "Outputs",
+      "type": "object"
+    },
+    "pending_approvals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Pending Approvals",
+      "type": "array"
+    },
+    "approvals": {
+      "items": {
+        "$ref": "#/$defs/ApprovalRecord"
+      },
+      "title": "Approvals",
+      "type": "array"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "evidence_refs": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "usage": {
+      "$ref": "#/$defs/UsageMetrics"
+    },
+    "replayed_from": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Replayed From"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "lineage_depth": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Lineage Depth",
+      "type": "integer"
+    },
+    "fork_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fork Reason"
+    },
+    "cancellation_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cancellation Reason"
+    },
+    "cancelled_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cancelled At"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "runtime_capabilities_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Runtime Capabilities Hash"
+    },
+    "storage_backend": {
+      "default": "filesystem",
+      "title": "Storage Backend",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_hash",
+    "plan_semantic_hash",
+    "playbook_hash",
+    "playbook_id",
+    "playbook_version"
+  ],
+  "title": "RunState",
+  "type": "object"
+}
