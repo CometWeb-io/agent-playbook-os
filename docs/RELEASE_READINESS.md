@@ -8,7 +8,7 @@ while any required live item remains `BLOCKED`.
 
 | Gate | Status | Evidence / remaining work |
 | --- | --- | --- |
-| Fresh install gate | CLEAR | `python -m pip install -e ".[dev]"` includes the no-isolation build backend; clean virtualenv regression passes. |
+| Fresh install gate | CLEAR | From a clean clone: `python3 -m venv .venv`, activate, then `python -m pip install -e ".[dev]"` (includes the no-isolation build backend); clean virtualenv regression passes. Package is installed from the clone, not PyPI. |
 | Security regression suite | CLEAR | Command allowlist, expression, path, secret and policy tests pass. |
 | Skill-lock verification | CLEAR | Resolver, whole-package hashes and Agent Skills adapter contract pass. |
 | Migration test | CLEAR | Released run-state migration suite passes. |
@@ -25,6 +25,8 @@ pytest, schema export and repository validation. Before publishing a release,
 run the full local gate from a clean development environment:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 python -m pip install -e ".[dev]"
 python scripts/release_check.py
 python benchmarks/run_comparison.py \
