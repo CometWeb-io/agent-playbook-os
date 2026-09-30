@@ -158,12 +158,36 @@ See [release readiness](docs/RELEASE_READINESS.md) for the current boundary.
 
 ## Quick start
 
+Install from this clone (the package is not published to PyPI). Use a venv so
+`pip` and `playbook` resolve on a stock machine:
+
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 python -m pip install -e ".[dev]"
 
 playbook validate playbooks/examples/kernel-demo.yaml --input name=Ada
 playbook compile playbooks/examples/kernel-demo.yaml --input name=Ada --out /tmp/plan.json
 playbook run playbooks/examples/kernel-demo.yaml --input name=Ada --run-root .playbook-runs
+```
+
+The first `run` of this demo stops at `WAITING_APPROVAL` and exits 0. Stderr
+prints the resume command; copy the `run_dir` from the JSON output and continue:
+
+```bash
+playbook resume .playbook-runs/<RUN_ID> \
+  --approve approval \
+  --approval-actor you@example.com
+```
+
+Or approve on the first run:
+
+```bash
+playbook run playbooks/examples/kernel-demo.yaml \
+  --input name=Ada \
+  --run-root .playbook-runs \
+  --approve approval \
+  --approval-actor you@example.com
 ```
 
 
@@ -219,6 +243,9 @@ playbook queue enqueue /tmp/demo-plan.json --queue-db .playbook-os/work.sqlite3 
 playbook worker once --queue-db .playbook-os/work.sqlite3 --allowed-run-root .playbook-runs --allowed-plan-root /tmp --strict-capabilities
 playbook queue stats --queue-db .playbook-os/work.sqlite3
 ```
+
+Worker/queue `COMPLETED` only means the claim finished; the run may still be
+`WAITING_APPROVAL`. Resume the run directory when a human gate is pending.
 
 
 Resume a human gate with an auditable actor:

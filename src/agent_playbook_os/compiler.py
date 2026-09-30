@@ -242,8 +242,11 @@ class Compiler:
     def _materialize_inputs(self, playbook: Playbook, provided: dict[str, Any]) -> dict[str, Any]:
         result = {}
         for name, definition in playbook.spec.inputs.items():
-            value = provided[name] if name in provided else definition.default
-            if value is not None:
+            explicitly_provided = name in provided
+            value = provided[name] if explicitly_provided else definition.default
+            # Explicit JSON null (Python None) must still fail type checks for string/etc.
+            # Omitted optional inputs that default to None remain valid.
+            if value is not None or explicitly_provided:
                 self._check_type(name, value, definition.type)
             result[name] = value
         return result

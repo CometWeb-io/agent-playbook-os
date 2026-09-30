@@ -51,6 +51,25 @@ def test_required_input():
         Compiler().compile(p)
 
 
+def test_explicit_null_does_not_satisfy_string_input():
+    """json.loads('null') -> None; an explicit null must fail string type checks."""
+    p = pb(
+        [{"id": "a", "type": "action", "action": "set"}],
+        inputs={"name": {"type": "string", "required": True}},
+    )
+    with pytest.raises(CompileError, match="expected string"):
+        Compiler().compile(p, {"name": None})
+
+
+def test_omitted_optional_null_default_remains_valid():
+    p = pb(
+        [{"id": "a", "type": "action", "action": "set"}],
+        inputs={"note": {"type": "string", "required": False, "default": None}},
+    )
+    plan = Compiler().compile(p, {})
+    assert plan is not None
+
+
 def test_skill_must_be_declared():
     p = pb([{"id":"a","type":"skill","uses":"foo"}])
     with pytest.raises(CompileError, match="not declared"):

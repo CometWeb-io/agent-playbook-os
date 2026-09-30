@@ -142,7 +142,30 @@ def cmd_compile(args):
 
 
 def _run_dir(root, run_id):
-    return Path(root).resolve() / run_id
+    """Join run_id under run-root; reject any id that is not a single path segment."""
+    if not isinstance(run_id, str) or not run_id or run_id in {".", ".."} or "/" in run_id or "\\" in run_id:
+        raise SystemExit(
+            f"invalid --run-id {run_id!r}: must be a single path segment "
+            "(no slash, no backslash, not empty, not '.', not '..')"
+        )
+    root_resolved = Path(root).resolve()
+    run_dir = (root_resolved / run_id).resolve()
+    if run_dir.parent != root_resolved:
+        raise SystemExit(
+            f"invalid --run-id {run_id!r}: run directory would escape --run-root {root_resolved}"
+        )
+    return run_dir
+
+
+def _hint_waiting_approval(run_dir, state):
+    if state.status != RunStatus.WAITING_APPROVAL:
+        return
+    pending = list(state.pending_approvals) or ["<approval-id>"]
+    approve_flags = " ".join(f"--approve {aid}" for aid in pending)
+    print(
+        f"Next step: playbook resume {run_dir} {approve_flags} --approval-actor <you>",
+        file=sys.stderr,
+    )
 
 
 async def cmd_run_async(args):
@@ -171,6 +194,7 @@ async def cmd_run_async(args):
         "outputs": state.outputs,
         "usage": state.usage.model_dump(mode="json"),
     }, indent=2))
+    _hint_waiting_approval(run_dir, state)
     return 0 if state.status in {RunStatus.COMPLETED, RunStatus.WAITING_APPROVAL} else 1
 
 
@@ -204,6 +228,7 @@ async def cmd_resume_async(args):
         "outputs": state.outputs,
         "usage": state.usage.model_dump(mode="json"),
     }, indent=2))
+    _hint_waiting_approval(args.run_dir, state)
     return 0 if state.status in {RunStatus.COMPLETED, RunStatus.WAITING_APPROVAL} else 1
 
 
@@ -469,6 +494,7 @@ async def cmd_run_plan_async(args):
         "outputs": state.outputs,
         "usage": state.usage.model_dump(mode="json"),
     }, indent=2))
+    _hint_waiting_approval(run_dir, state)
     return 0 if state.status in {RunStatus.COMPLETED, RunStatus.WAITING_APPROVAL} else 1
 
 
