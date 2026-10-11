@@ -4,6 +4,7 @@ from typing import Any
 
 from ..capabilities import CapabilityDescriptor, CapabilityRegistry
 from ..models import ProviderReceipt, RuntimeResult, UsageMetrics
+from ..errors import StepExecutionError
 from ..runtime import CallableRuntime
 from ._common import invoke_client, get_value, objective_text, jsonable_output
 
@@ -33,6 +34,9 @@ class OpenAIResponsesRuntime(CallableRuntime):
     async def execute_agent(self, step, inputs, context):
         create = self.client.responses.create
         response = await invoke_client(create, model=self.model, input=objective_text(step, inputs))
+        status = get_value(response, "status")
+        if status is not None and status != "completed":
+            raise StepExecutionError(f"OpenAI response is not completed (status={status})")
         output = get_value(response, "output_text")
         if output is None:
             output = jsonable_output(get_value(response, "output", response))
