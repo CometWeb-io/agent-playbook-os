@@ -408,3 +408,30 @@ The reference kernel checks integrity and mutual exclusion, but does
 not independently prove that an external payment, email or other
 material operation succeeded. Production operator endpoints must have
 host-owned IAM, separation of duties and audited approval records.
+
+## Runtime evidence identity collisions (11 October 2026)
+
+A provider call can return a receipt, artifact or evidence reference with
+the same ID as an earlier value but with different content. The reference
+runtime previously ignored those mismatches when it saw a duplicate ID,
+which could silently associate the wrong provider call or artifact with
+a later invocation.
+
+The Runner now treats `ProviderReceipt.receipt_id`, `ArtifactRef.id` and
+`EvidenceRef.id` as immutable evidence identities for the lifetime of a
+run. Exact replays of the same object remain idempotent. Distinct data
+with an existing identifier raises `ProviderEvidenceConflict` (a
+`ReconciliationRequired` subtype), including during streaming. For a
+dispatched material action the invocation is journaled as `UNKNOWN`, and
+`on_fail=skip` / ordinary retry cannot turn the conflict into success.
+
+An adapter that legitimately publishes a status transition such as
+accepted -> completed must use a new versioned receipt ID or an explicit,
+separately documented update protocol. Do not silently mutate existing
+immutable evidence. Receipt equality includes the complete declared
+record, including metadata and timestamps. This is evidence-consistency
+validation, **not** proof of provider authenticity or external success.
+
+These invariants have regression tests for normal and streamed outputs,
+including duplicated valid evidence and conflicting provider/artifact/
+evidence IDs. Live provider contract conformance remains required.
