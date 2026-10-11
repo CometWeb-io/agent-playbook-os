@@ -412,6 +412,10 @@ async def cmd_operate_async(args):
     runtime = make_runtime(args)
     run_id = args.run_id or str(uuid4())
     run_dir = _run_dir(args.run_root, run_id)
+    if args.approve_plan and not args.approved_plan_hash:
+        raise SystemExit("--approve-plan requires --approved-plan-hash from a previously reviewed plan")
+    if args.approved_plan_hash and not args.approve_plan:
+        raise SystemExit("--approved-plan-hash requires --approve-plan")
     if args.prepare_only:
         prepared = await prepare_operator_execution(
             goal=args.goal, operator=operator, catalog=catalog, compiler=compiler, runtime=runtime,
@@ -426,7 +430,7 @@ async def cmd_operate_async(args):
             "compiled_plan": str(run_dir / "operator" / "compiled-plan.json"),
             "gate": prepared.gate.model_dump(mode="json"),
         }, indent=2))
-        return
+        return 0
     registry = PromotionRegistry(args.promotion_registry) if args.promotion_registry else None
     runner = Runner(
         runtime, compiler, telemetry=make_telemetry(args),
@@ -445,6 +449,7 @@ async def cmd_operate_async(args):
             promotion_registry=registry, require_capabilities=args.strict_capabilities,
             runner=runner,
             approve_ephemeral_plan=args.approve_plan,
+            approved_plan_hash=args.approved_plan_hash,
         )
     except PlanApprovalRequired as exc:
         print(json.dumps({
@@ -455,16 +460,17 @@ async def cmd_operate_async(args):
             "compiled_plan": str(run_dir / "operator" / "compiled-plan.json"),
             "hint": "Review the generated playbook/compiled plan, then rerun with --approve-plan or execute the compiled plan with run-plan.",
         }, indent=2))
-        return
+        return 0
     print(json.dumps({
         "run_id": state.run_id, "status": state.status.value, "run_dir": str(run_dir),
         "operator_mode": prepared.decision.mode, "playbook_id": prepared.plan.playbook_id,
         "plan_semantic_hash": prepared.plan.semantic_hash, "outputs": state.outputs,
     }, indent=2))
+    return 0 if state.status in {RunStatus.COMPLETED, RunStatus.WAITING_APPROVAL} else 1
 
 
 def cmd_operate(args):
-    asyncio.run(cmd_operate_async(args))
+    raise SystemExit(asyncio.run(cmd_operate_async(args)))
 
 
 async def cmd_run_plan_async(args):
@@ -839,6 +845,8 @@ def cmd_queue_enqueue(args):
         metadata = json.loads(args.metadata)
         if not isinstance(metadata, dict):
             raise SystemExit("--metadata must decode to an object")
+    # The plan digest is authoritative, not provided by arbitrary --metadata.
+    metadata["submitted_plan_hash"] = plan.integrity_hash
     submission = WorkSubmission(
         work_id=args.work_id or str(uuid4()), queue_name=args.queue_name, tenant_id=args.tenant, namespace=args.namespace,
         run_id=run_id, plan_path=str(plan_path), run_dir=str(run_dir), store_backend=args.store,
@@ -1103,6 +1111,7 @@ def build_parser():
     p.add_argument("--catalog-root", action="append", default=["playbooks"])
     p.add_argument("--context", help="optional JSON/YAML operator context")
     p.add_argument("--prepare-only", action="store_true")
+    p.add_argument("--approved-plan-hash", help="SHA-256 semantic hash of the reviewed ephemeral plan")
     p.add_argument("--approve-plan", action="store_true", help="approve execution of an Operator-generated ephemeral plan after review")
     p.add_argument("--promotion-registry")
     p.add_argument("--run-root", default=".playbook-runs")

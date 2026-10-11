@@ -16,12 +16,24 @@ class AttrView:
         self._value = value
 
     def __getattr__(self, key: str) -> Any:
-        if isinstance(self._value, Mapping) and key in self._value:
+        # Expressions are data lookups, never Python object introspection.
+        # Internal attributes are accessible only as explicit mapping keys.
+        if key.startswith("_"):
+            raise AttributeError("private attributes are unavailable in expressions")
+        if type(self._value) is dict and key in self._value:
             return wrap(self._value[key])
         raise AttributeError(key)
 
     def __getitem__(self, key: Any) -> Any:
-        return wrap(self._value[key])
+        if type(self._value) is dict:
+            if type(key) not in {str, int, float, bool}:
+                raise ValueError("mapping key type not allowed in expression")
+            return wrap(self._value[key])
+        if type(self._value) in {list, tuple}:
+            if type(key) is not int:
+                raise ValueError("sequence index must be an integer")
+            return wrap(self._value[key])
+        raise ValueError("subscript target is not a plain mapping or sequence")
 
     def raw(self):
         return self._value
@@ -32,7 +44,8 @@ class AttrView:
 
 
 def wrap(value: Any) -> Any:
-    if isinstance(value, (dict, list, tuple)):
+    # Do not wrap dict/list subclasses with attacker-controlled magic methods.
+    if type(value) in {dict, list, tuple}:
         return AttrView(value)
     return value
 
@@ -82,10 +95,14 @@ def safe_eval(expr: str, context: dict[str, Any]) -> Any:
             return wrap(context[node.id])
         if isinstance(node, ast.Attribute):
             base = visit(node.value)
-            return getattr(base, node.attr)
+            if not isinstance(base, AttrView):
+                raise ValueError("attribute access is restricted to plain data mappings")
+            return base.__getattr__(node.attr)
         if isinstance(node, ast.Subscript):
             base = visit(node.value)
-            key = visit(node.slice)
+            if not isinstance(base, AttrView):
+                raise ValueError("subscripts are restricted to plain data mappings and sequences")
+            key = unwrap(visit(node.slice))
             return base[key]
         if isinstance(node, ast.List):
             return [unwrap(visit(x)) for x in node.elts]

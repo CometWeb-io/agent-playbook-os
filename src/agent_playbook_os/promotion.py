@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .integrity import canonical_hash
 from .loader import load_playbook
-from .models import Playbook, RunStatus
+from .models import InvocationStatus, Playbook, RunStatus
 from .storage import open_run_store
 
 
@@ -88,6 +88,14 @@ class PromotionRegistry:
         store = open_run_store(run_dir)
         state = store.load_state()
         candidate_hash = canonical_hash(playbook.model_dump(mode="json", by_alias=True))
+        if state.playbook_hash != candidate_hash:
+            raise ValueError("run does not correspond to the candidate playbook content")
+        for check in (store.verify_event_chain, store.verify_plan_integrity, store.verify_state_integrity):
+            ok, error = check()
+            if not ok:
+                raise ValueError(f"cannot promote evidence from an invalid run: {error}")
+        if any(inv.status in {InvocationStatus.UNKNOWN, InvocationStatus.STARTED} for inv in state.invocations):
+            raise ValueError("cannot use a run with unresolved material invocations as promotion evidence")
         existing_rows = self._read()
         ok, error = self.verify()
         if not ok:

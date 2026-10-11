@@ -21,7 +21,7 @@ def test_command_runtime_requires_non_empty_allowlist():
 
 @pytest.mark.asyncio
 async def test_command_runtime_uses_configured_allowlist(tmp_path):
-    p = make({"id": "cmd", "type": "action", "action": "command", "with": {"argv": ["echo", "ok"]}})
+    p = make({"id": "cmd", "type": "action", "action": "command", "side_effects": "local", "with": {"argv": ["echo", "ok"]}})
 
     allowed = await Runner(ReferenceRuntime(allow_commands=True, allowed_commands={"echo"})).run(
         Compiler().compile(p), tmp_path / "allowed"
@@ -38,7 +38,7 @@ async def test_command_runtime_uses_configured_allowlist(tmp_path):
 
 @pytest.mark.asyncio
 async def test_shell_is_not_implicitly_available(tmp_path):
-    p = make({"id":"cmd","type":"action","action":"command","with":{"argv":["echo","x"]}})
+    p = make({"id":"cmd","type":"action","action":"command","side_effects":"local","with":{"argv":["echo","x"]}})
     state = await Runner(ReferenceRuntime()).run(Compiler().compile(p), tmp_path / "r")
     assert state.status == RunStatus.FAILED
     assert "disabled" in state.steps["cmd"].error

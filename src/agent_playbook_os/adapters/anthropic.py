@@ -4,6 +4,7 @@ from typing import Any
 
 from ..capabilities import CapabilityDescriptor, CapabilityRegistry
 from ..models import ProviderReceipt, RuntimeResult, UsageMetrics
+from ..errors import ProviderContinuationRequired, ProviderRefusal
 from ..runtime import CallableRuntime
 from ._common import invoke_client, get_value, objective_text, jsonable_output
 
@@ -15,6 +16,8 @@ class AnthropicMessagesRuntime(CallableRuntime):
         super().__init__(skills=skills, actions=actions, isolation_modes=isolation_modes or {"inline", "auto"})
         self.client = client
         self.model = model
+        if type(max_tokens) is not int or max_tokens < 1:
+            raise ValueError("max_tokens must be a positive integer")
         self.max_tokens = max_tokens
 
     def capabilities(self) -> CapabilityRegistry:
@@ -33,6 +36,13 @@ class AnthropicMessagesRuntime(CallableRuntime):
             max_tokens=self.max_tokens,
             messages=[{"role": "user", "content": objective_text(step, inputs)}],
         )
+        stop_reason = get_value(response, "stop_reason")
+        if stop_reason == "refusal":
+            raise ProviderRefusal("Anthropic model refused the requested operation")
+        if stop_reason is not None and stop_reason != "end_turn":
+            raise ProviderContinuationRequired(
+                f"Anthropic response requires continuation or tool handling (stop_reason={stop_reason})"
+            )
         content = get_value(response, "content", []) or []
         pieces = []
         for item in content:

@@ -12,7 +12,7 @@ import jsonschema
 from .budgets import BudgetController
 from .compiler import Compiler
 from .errors import (
-    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
+    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
 )
 from .expressions import render, safe_eval
 from .integrity import compiled_plan_integrity
@@ -85,7 +85,11 @@ class Runner:
         self._seq += 1
         safe_data = redact(data)
         event = Event(seq=self._seq, run_id=state.run_id, type=event_type, step_id=step_id, data=safe_data)
-        store.append_event(event)
+        commit_transition = getattr(store, "append_event_with_state", None)
+        if callable(commit_transition):
+            commit_transition(event, state)
+        else:
+            store.append_event(event)
         try:
             self.telemetry.emit(event.model_dump(mode="json"))
         except Exception:
@@ -176,6 +180,21 @@ class Runner:
         return bool(fn(step)) if fn else False
 
     def _effective_isolation(self, step: StepSpec, plan) -> str:
+        # The host's tool classification is authoritative. A playbook may
+        # overstate effects, never downgrade a known material action to 'none'.
+        if step.type == "action":
+            caps_fn = getattr(self.runtime, "capabilities", None)
+            if callable(caps_fn):
+                registry = caps_fn()
+                descriptor = registry.get(f"action:{step.action}") if registry is not None else None
+                if descriptor is not None:
+                    levels = {"none": 0, "local": 1, "external": 2, "destructive": 3}
+                    preview = bool(getattr(self.runtime, "dry_run", False) and descriptor.supports_dry_run)
+                    if not preview and levels[step.side_effects] < levels[descriptor.side_effects]:
+                        raise StepExecutionError(
+                            f"action {step.action} is classified {descriptor.side_effects} by the host "
+                            f"but the playbook declares {step.side_effects}; cannot downgrade side effects"
+                        )
         requested = step.execution_isolation or plan.execution.isolation
         required = plan.policy.require_isolation_for.get(step.side_effects)
         if required:
@@ -407,6 +426,21 @@ class Runner:
             if not ok:
                 raise IntegrityError(f"cannot resume tampered state: {error}")
             state = store.load_state()
+            stored_plan = store.load_plan()
+            if stored_plan.integrity_hash != plan.integrity_hash:
+                raise StepExecutionError("stored run plan differs from requested plan")
+            if (
+                state.plan_hash != plan.integrity_hash
+                or state.plan_semantic_hash != plan.semantic_hash
+                or state.playbook_hash != plan.playbook_hash
+            ):
+                raise IntegrityError("run state hashes do not match compiled plan")
+            if state.status in {RunStatus.COMPLETED, RunStatus.CANCELLED}:
+                raise StepExecutionError(f"cannot resume terminal run: {state.status.value}")
+            # No resume-time event may be written before the durable sequence
+            # cursor is recovered. This includes auto-reconciliation and drift.
+            existing = store.read_events()
+            self._seq = max((e.get("seq", 0) for e in existing), default=0)
             current_caps = self._runtime_capabilities_hash()
             if state.runtime_capabilities_hash and current_caps and state.runtime_capabilities_hash != current_caps:
                 if not allow_runtime_change:
@@ -420,19 +454,6 @@ class Runner:
             elif state.runtime_capabilities_hash is None:
                 state.runtime_capabilities_hash = current_caps
             self._reconcile_uncertain_invocations_for_resume(state, plan, store)
-            stored_plan = store.load_plan()
-            if stored_plan.integrity_hash != plan.integrity_hash:
-                raise StepExecutionError("stored run plan differs from requested plan")
-            if (
-                state.plan_hash != plan.integrity_hash
-                or state.plan_semantic_hash != plan.semantic_hash
-                or state.playbook_hash != plan.playbook_hash
-            ):
-                raise IntegrityError("run state hashes do not match compiled plan")
-            if state.status in {RunStatus.COMPLETED, RunStatus.CANCELLED}:
-                raise StepExecutionError(f"cannot resume terminal run: {state.status.value}")
-            existing = store.read_events()
-            self._seq = max((e.get("seq", 0) for e in existing), default=0)
             self._emit(store, state, "run.resumed", approvals=sorted(approvals))
         else:
             if store.has_any_run_data():
@@ -565,12 +586,12 @@ class Runner:
             except Exception as exc:
                 ss.error = f"{type(exc).__name__}: {exc}"
                 ss.finished_at = now()
-                if step.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError)):
+                if step.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     ss.status = StepStatus.SKIPPED
                     self._emit(store, state, "step.skipped", step.id, reason=ss.error)
                     store.save_state(state)
                     continue
-                if step.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError)):
+                if step.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     ss.status = StepStatus.FAILED
                     self._emit(store, state, "step.failed_continued", step.id, error=ss.error)
                     store.save_state(state)
@@ -611,7 +632,7 @@ class Runner:
             setattr(step_state.usage, field, getattr(step_state.usage, field) + 1)
 
     def _should_retry(self, step: StepSpec, exc: Exception) -> bool:
-        if isinstance(exc, (BudgetExceeded, IntegrityError, CancellationRequested, LeaseConflict, ReconciliationRequired)):
+        if isinstance(exc, (BudgetExceeded, IntegrityError, CancellationRequested, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ReconciliationRequired)):
             return False
         if isinstance(exc, SideEffectOutcomeUnknown):
             return bool(step.idempotency_key and self._runtime_supports_idempotency(step))
@@ -656,7 +677,7 @@ class Runner:
                     raise BudgetExceeded("no run time budget remains")
                 async def invoke_and_consume():
                     raw = await self._execute_step(step, plan, state, store, control, budget)
-                    return await self._consume_runtime_output(raw, state, ss, store, step.id, invocation)
+                    return await self._consume_runtime_output(raw, state, ss, store, step.id, invocation, budget=budget)
 
                 output = await self._await_with_controls(invoke_and_consume(), timeout)
                 output = redact_secret_values(output)
@@ -688,6 +709,20 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
+                raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
@@ -704,34 +739,62 @@ class Runner:
         assert last is not None
         raise last
 
-    async def _consume_runtime_output(self, raw, state, step_state, store, step_id, invocation=None):
-        if hasattr(raw, "__aiter__"):
+    async def _consume_runtime_output(self, raw, state, step_state, store, step_id, invocation=None, *, budget=None):
+        streaming = hasattr(raw, "__aiter__")
+        if streaming:
             aggregate = RuntimeResult()
             saw_result = False
             async for item in raw:
                 event = item if isinstance(item, RuntimeStreamEvent) else RuntimeStreamEvent.model_validate(item)
-                self._emit(store, state, f"runtime.stream.{event.type}", step_id, metadata=event.metadata)
+                # Usage/receipts have already happened in the real world. Commit
+                # them before reading another stream chunk: late failures must
+                # not erase real token charges or provider receipts.
                 if event.type == "usage" and event.usage is not None:
                     aggregate.usage.add(event.usage)
+                    state.usage.add(event.usage)
+                    step_state.usage.add(event.usage)
                 elif event.type == "artifact" and event.artifact is not None:
                     aggregate.artifacts.append(event.artifact)
+                    if not any(x.id == event.artifact.id for x in state.artifacts):
+                        state.artifacts.append(event.artifact)
                 elif event.type == "evidence" and event.evidence_ref is not None:
                     aggregate.evidence_refs.append(event.evidence_ref)
+                    if not any(x.id == event.evidence_ref.id for x in state.evidence_refs):
+                        state.evidence_refs.append(event.evidence_ref)
                 elif event.type == "receipt" and event.receipt is not None:
                     aggregate.provider_receipts.append(event.receipt)
+                    receipt = event.receipt.model_copy(update={"metadata": redact(event.receipt.metadata)})
+                    if receipt.idempotency_key is None:
+                        receipt.idempotency_key = step_state.idempotency_key
+                    if not any(x.receipt_id == receipt.receipt_id for x in state.provider_receipts):
+                        state.provider_receipts.append(receipt)
+                    if receipt.receipt_id not in step_state.provider_receipt_ids:
+                        step_state.provider_receipt_ids.append(receipt.receipt_id)
+                    if invocation is not None:
+                        if receipt.receipt_id not in invocation.provider_receipt_ids:
+                            invocation.provider_receipt_ids.append(receipt.receipt_id)
+                        invocation.provider = invocation.provider or receipt.provider
+                        invocation.provider_call_id = invocation.provider_call_id or receipt.call_id
                 elif event.type == "result":
                     aggregate.value = event.value
                     saw_result = True
+                # The event and snapshot are atomically committed on SQLite.
+                self._emit(store, state, f"runtime.stream.{event.type}", step_id, metadata=event.metadata)
+                if budget is not None and event.type == "usage":
+                    budget.check(state)
             if not saw_result:
                 raise StepExecutionError(f"streaming runtime for {step_id} ended without a result event")
             raw = aggregate
-        return self._consume_runtime_result(raw, state, step_state, store, step_id, invocation)
+        return self._consume_runtime_result(
+            raw, state, step_state, store, step_id, invocation, usage_already_accounted=streaming
+        )
 
-    def _consume_runtime_result(self, raw, state: RunState, step_state: StepState, store, step_id: str, invocation=None):
+    def _consume_runtime_result(self, raw, state: RunState, step_state: StepState, store, step_id: str, invocation=None, *, usage_already_accounted=False):
         if not isinstance(raw, RuntimeResult):
             return raw
-        state.usage.add(raw.usage)
-        step_state.usage.add(raw.usage)
+        if not usage_already_accounted:
+            state.usage.add(raw.usage)
+            step_state.usage.add(raw.usage)
         existing_artifacts = {x.id for x in state.artifacts}
         for ref in raw.artifacts:
             if ref.id not in existing_artifacts:
@@ -799,10 +862,129 @@ class Runner:
         schema = json.loads(payload.decode("utf-8"))
         jsonschema.validate(output, schema)
 
+    def _render_step_params(self, step: StepSpec, context: dict[str, Any]):
+        raw = render(step.with_, context)
+        if step.type == "playbook":
+            # Child input values become durable compiled plan material.
+            # Never serialize resolved credential bytes into that plan.
+            return raw
+        return resolve_secret_references(raw, self.secret_resolver)
+
+    async def _run_subplaybook(self, step, params, plan, state, store, budget, parts):
+        """Execute a child with inherited policy, durable resume and approval routing.
+
+        Child execution is not a policy reset: its host policy can only tighten
+        the exact, already-compiled effective policy of the parent run.
+        """
+        from .models import BudgetSpec, PolicySpec
+        from .policy import compose_policies
+
+        if state.lineage_depth >= 8:
+            raise StepExecutionError("subplaybook nesting exceeds maximum depth 8")
+        base = (Path(plan.source_path).parent if plan.source_path else Path.cwd()).resolve()
+        child_path = (base / step.playbook).resolve()
+        if not child_path.is_relative_to(base):
+            raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
+        child_pb = load_playbook(child_path)
+
+        # Bound the child to the parent's REMAINING available budget, not
+        # a fresh, independent allowance for every nested workflow.
+        remaining = {}
+        for field in BudgetSpec.model_fields:
+            ceiling = budget.limit(field)
+            if ceiling is None:
+                continue
+            if field == "max_step_seconds":
+                remaining[field] = ceiling
+            elif field == "max_run_seconds":
+                seconds_left = ceiling - budget.elapsed_seconds(state)
+                if seconds_left <= 0:
+                    raise BudgetExceeded("no run time budget remains for subplaybook")
+                remaining[field] = seconds_left
+            else:
+                usage = getattr(state.usage, field.removeprefix("max_"))
+                available = ceiling - usage
+                if available < 0 or (field == "max_total_attempts" and available == 0):
+                    raise BudgetExceeded(f"no {field} budget remains for subplaybook")
+                remaining[field] = available
+        host_policy = compose_policies(plan.policy, PolicySpec(
+            budget=BudgetSpec(**remaining),
+            max_steps=plan.execution.max_steps,
+            max_parallel=plan.execution.max_parallel,
+            max_foreach_items=plan.execution.max_foreach_items,
+            max_loop_iterations=plan.execution.max_loop_iterations,
+        ))
+        compiler = Compiler(
+            skill_resolver=self.compiler.skill_resolver,
+            strict_skill_resolution=self.compiler.strict_skill_resolution,
+            host_policy=host_policy,
+        )
+        child_dir = store.run_dir.joinpath("subruns", *parts)
+        child_store = self.store_factory(child_dir)
+        resume = child_store.has_state()
+        if resume:
+            # The source can change between approval and resume. Only the
+            # persisted compiled plan may be resumed, if semantics still match.
+            for check in (child_store.verify_event_chain, child_store.verify_plan_integrity, child_store.verify_state_integrity):
+                ok, reason = check()
+                if not ok:
+                    raise IntegrityError(f"invalid child run: {reason}")
+            recorded_plan = child_store.load_plan()
+            if recorded_plan.playbook_hash != canonical_hash(child_pb.model_dump(by_alias=True, mode="json")):
+                raise IntegrityError("subplaybook source changed since its first execution")
+            # Remaining budget is dynamic. Resume the exact persisted plan
+            # rather than recompiling it with a new remaining-budget hash.
+            from .policy import assert_plan_satisfies_host_policy
+            assert_plan_satisfies_host_policy(recorded_plan, plan.policy)
+            child_plan = recorded_plan
+        else:
+            child_plan = compiler.compile(child_pb, params, source_path=str(child_path))
+        prefix = "/".join(parts)
+        child_approvals = {
+            value[len(prefix) + 1:] for value in self._active_approvals
+            if value.startswith(prefix + "/")
+        }
+        if resume and child_store.load_state().status == RunStatus.COMPLETED:
+            child_state = child_store.load_state()
+        else:
+            child_runner = Runner(
+                self.runtime, compiler, telemetry=self.telemetry, schema_resolver=self.schema_resolver,
+                secret_resolver=self.secret_resolver, store_factory=self.store_factory,
+                lease_ttl_seconds=self.lease_ttl_seconds,
+                lease_heartbeat_seconds=self.lease_heartbeat_seconds,
+                enforce_capabilities=self.enforce_capabilities,
+            )
+            child_state = await child_runner.run(
+                child_plan, child_dir, resume=resume, approvals=child_approvals,
+                approval_actor=self._approval_actor, cancellation_token=self._cancellation,
+                parent_run_id=state.run_id, root_run_id=state.root_run_id or state.run_id,
+                parent_lineage_depth=state.lineage_depth,
+                fork_reason=f"subplaybook:{prefix}",
+            )
+        if child_state.status == RunStatus.WAITING_APPROVAL:
+            if not child_state.pending_approvals:
+                raise StepExecutionError("subplaybook is waiting without an approval id")
+            raise ApprovalRequired(prefix + "/" + child_state.pending_approvals[0])
+        if child_state.status != RunStatus.COMPLETED:
+            uncertain = [
+                inv for inv in child_state.invocations
+                if inv.status in {InvocationStatus.UNKNOWN, InvocationStatus.STARTED}
+                and inv.side_effects in {"local", "external", "destructive"}
+            ]
+            if uncertain:
+                # The parent may advertise on_fail=skip or continue, but it
+                # cannot convert an uncertain child side effect into success.
+                raise ReconciliationRequired(
+                    f"subplaybook {prefix} has {len(uncertain)} unresolved material invocations"
+                )
+            raise StepExecutionError(f"subplaybook {prefix} ended as {child_state.status.value}")
+        state.usage.add(child_state.usage)
+        budget.check(state)
+        return child_state.outputs
+
     async def _execute_step(self, step, plan, state, store, control, budget: BudgetController):
         context = self._context(plan, state, control=control)
-        params = render(step.with_, context)
-        params = resolve_secret_references(params, self.secret_resolver)
+        params = self._render_step_params(step, context)
         if step.type == "skill":
             self._emit(store, state, "skill.invoked", step.id, skill=step.uses, idempotency_key=control.get("idempotency_key"))
             return await self.runtime.execute_skill(step, params, context)
@@ -853,30 +1035,7 @@ class Runner:
         if step.type == "while":
             return await self._execute_while(step, plan, state, store, budget, context)
         if step.type == "playbook":
-            base = (Path(plan.source_path).parent if plan.source_path else Path.cwd()).resolve()
-            child_path = (base / step.playbook).resolve()
-            if not child_path.is_relative_to(base):
-                raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
-            child_pb = load_playbook(child_path)
-            child_plan = self.compiler.compile(child_pb, params, source_path=str(child_path))
-            child_dir = store.run_dir / "subruns" / step.id
-            child_runner = Runner(
-                self.runtime, self.compiler, telemetry=self.telemetry, schema_resolver=self.schema_resolver,
-                secret_resolver=self.secret_resolver, store_factory=self.store_factory,
-                lease_ttl_seconds=self.lease_ttl_seconds, lease_heartbeat_seconds=self.lease_heartbeat_seconds,
-                enforce_capabilities=self.enforce_capabilities,
-            )
-            child_state = await child_runner.run(
-                child_plan, child_dir, parent_run_id=state.run_id,
-                root_run_id=state.root_run_id or state.run_id,
-                fork_reason=f"subplaybook:{step.id}",
-                parent_lineage_depth=state.lineage_depth,
-            )
-            if child_state.status != RunStatus.COMPLETED:
-                raise StepExecutionError(f"subplaybook {step.id} ended as {child_state.status.value}")
-            state.usage.add(child_state.usage)
-            budget.check(state)
-            return child_state.outputs
+            return await self._run_subplaybook(step, params, plan, state, store, budget, (step.id,))
         raise StepExecutionError(f"unsupported step type: {step.type}")
 
 
@@ -1019,13 +1178,13 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip":
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
                     self._emit(store, state, "foreach.step.skipped", key, parent=parent.id, index=index, reason=err)
                     continue
-                if nested.on_fail == "continue":
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1063,7 +1222,7 @@ class Runner:
             context = self._context(
                 plan, state, extra_steps=dict(local), control=control, extra_context=extra_context
             )
-            params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+            params = self._render_step_params(step, context)
             self._emit(store, state, "foreach.step.attempt_started", nested_key, parent=parent.id, index=index, attempt=attempt)
             invocation = self._begin_invocation(step, state, local_state, store, step_id=nested_key, attempt=attempt)
             if invocation is not None:
@@ -1071,7 +1230,7 @@ class Runner:
                 context = self._context(
                     plan, state, extra_steps=dict(local), control=control, extra_context=extra_context
                 )
-                params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+                params = self._render_step_params(step, context)
             try:
                 timeout = budget.effective_step_timeout(step.timeout_seconds, state)
                 if timeout is not None and timeout <= 0:
@@ -1081,7 +1240,7 @@ class Runner:
                     raw = await self._execute_nested_once(
                         step, params, context, plan, state, store, budget, local, parent.id, prefix
                     )
-                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation)
+                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation, budget=budget)
 
                 out = await self._await_with_controls(invoke_and_consume(), timeout)
                 out = redact_secret_values(out)
@@ -1109,6 +1268,20 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
+                raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
@@ -1288,7 +1461,7 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip":
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1297,7 +1470,7 @@ class Runner:
                         parent=parent.id, iteration=iteration, reason=err,
                     )
                     continue
-                if nested.on_fail == "continue":
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1342,7 +1515,7 @@ class Runner:
                 plan, state, extra_steps=dict(local), control=control,
                 extra_context=extra_context,
             )
-            params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+            params = self._render_step_params(step, context)
             self._emit(
                 store, state, "while.step.attempt_started", nested_key,
                 parent=parent.id, iteration=iteration, attempt=attempt,
@@ -1356,7 +1529,7 @@ class Runner:
                     plan, state, extra_steps=dict(local), control=control,
                     extra_context=extra_context,
                 )
-                params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+                params = self._render_step_params(step, context)
             try:
                 timeout = budget.effective_step_timeout(step.timeout_seconds, state)
                 if timeout is not None and timeout <= 0:
@@ -1368,7 +1541,7 @@ class Runner:
                         parent.id, prefix,
                     )
                     return await self._consume_runtime_output(
-                        raw, state, local_state, store, nested_key, invocation
+                        raw, state, local_state, store, nested_key, invocation, budget=budget
                     )
 
                 out = await self._await_with_controls(invoke_and_consume(), timeout)
@@ -1398,6 +1571,20 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
+                raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
@@ -1566,13 +1753,13 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip":
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
                     self._emit(store, state, "parallel.step.skipped", key, parent=parent.id, branch=branch, reason=err)
                     continue
-                if nested.on_fail == "continue":
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1607,7 +1794,7 @@ class Runner:
                 "isolation": self._effective_isolation(step, plan),
             }
             context = self._context(plan, state, extra_steps=extra, control=control)
-            params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+            params = self._render_step_params(step, context)
             self._emit(store, state, "parallel.step.attempt_started", nested_key, parent=parent_id, branch=branch, attempt=attempt)
             invocation = self._begin_invocation(
                 step, state, local_state, store, step_id=nested_key, attempt=attempt
@@ -1615,14 +1802,14 @@ class Runner:
             if invocation is not None:
                 control["invocation_id"] = invocation.invocation_id
                 context = self._context(plan, state, extra_steps=extra, control=control)
-                params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+                params = self._render_step_params(step, context)
             try:
                 timeout = budget.effective_step_timeout(step.timeout_seconds, state)
                 if timeout is not None and timeout <= 0:
                     raise BudgetExceeded("no run time budget remains")
                 async def invoke_and_consume_nested():
                     raw = await self._execute_nested_once(step, params, context, plan, state, store, budget, local, parent_id, branch)
-                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation)
+                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation, budget=budget)
 
                 out = await self._await_with_controls(invoke_and_consume_nested(), timeout)
                 out = redact_secret_values(out)
@@ -1654,6 +1841,20 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
+                raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
@@ -1697,26 +1898,7 @@ class Runner:
                     return {"selected": render(case.value, context)}
             return {"selected": render(step.default, context)}
         if step.type == "playbook":
-            base = (Path(plan.source_path).parent if plan.source_path else Path.cwd()).resolve()
-            child_path = (base / step.playbook).resolve()
-            if not child_path.is_relative_to(base):
-                raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
-            child_pb = load_playbook(child_path)
-            child_plan = self.compiler.compile(child_pb, params, source_path=str(child_path))
-            child_dir = store.run_dir / "subruns" / parent_id / branch / step.id
-            child_state = await Runner(
-                self.runtime, self.compiler, telemetry=self.telemetry, schema_resolver=self.schema_resolver,
-                secret_resolver=self.secret_resolver, store_factory=self.store_factory,
-                lease_ttl_seconds=self.lease_ttl_seconds, lease_heartbeat_seconds=self.lease_heartbeat_seconds,
-                enforce_capabilities=self.enforce_capabilities,
-            ).run(
-                child_plan, child_dir, parent_run_id=state.run_id,
-                root_run_id=state.root_run_id or state.run_id,
-                fork_reason=f"subplaybook:{step.id}",
-                parent_lineage_depth=state.lineage_depth,
+            return await self._run_subplaybook(
+                step, params, plan, state, store, budget, (parent_id, branch, step.id)
             )
-            if child_state.status != RunStatus.COMPLETED:
-                raise StepExecutionError(f"subplaybook {step.id} ended as {child_state.status.value}")
-            state.usage.add(child_state.usage)
-            return child_state.outputs
         raise StepExecutionError(f"nested step type not supported: {step.type}")

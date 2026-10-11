@@ -7,13 +7,23 @@ from typing import Any
 from .integrity import canonical_hash
 from .models import RuntimeResult, RuntimeStreamEvent
 from .telemetry import redact
+from .secret_resolver import redact_secret_values
 
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, RuntimeResult):
-        return {"__runtime_result__": True, "value": redact(value.model_dump(mode="json"))}
+        safe = value.model_copy(deep=True)
+        safe.value = redact(redact_secret_values(safe.value))
+        for receipt in safe.provider_receipts:
+            receipt.metadata = redact(redact_secret_values(receipt.metadata))
+        return {"__runtime_result__": True, "value": safe.model_dump(mode="json")}
     if isinstance(value, RuntimeStreamEvent):
-        return {"__runtime_stream_event__": True, "value": redact(value.model_dump(mode="json"))}
+        safe = value.model_copy(deep=True)
+        safe.value = redact(redact_secret_values(safe.value))
+        safe.metadata = redact(redact_secret_values(safe.metadata))
+        if safe.receipt is not None:
+            safe.receipt.metadata = redact(redact_secret_values(safe.receipt.metadata))
+        return {"__runtime_stream_event__": True, "value": safe.model_dump(mode="json")}
     value = redact(value)
     if hasattr(value, "model_dump"):
         return redact(value.model_dump(mode="json"))
@@ -66,7 +76,7 @@ class RecordingRuntime:
         try:
             out = await method(step, inputs, context)
         except Exception as exc:
-            self._write({**base, "ok": False, "error_type": type(exc).__name__, "error": str(exc)})
+            self._write({**base, "ok": False, "error_type": type(exc).__name__, "error": "<runtime exception details omitted>"})
             raise
         if hasattr(out, "__aiter__"):
             async def recorded_stream():
@@ -74,10 +84,10 @@ class RecordingRuntime:
                 try:
                     async for item in out:
                         event = item if isinstance(item, RuntimeStreamEvent) else RuntimeStreamEvent.model_validate(item)
-                        events.append(event.model_dump(mode="json"))
+                        events.append(_jsonable(event)["value"])
                         yield event
                 except Exception as exc:
-                    self._write({**base, "ok": False, "stream": events, "error_type": type(exc).__name__, "error": str(exc)})
+                    self._write({**base, "ok": False, "stream": events, "error_type": type(exc).__name__, "error": "<runtime exception details omitted>"})
                     raise
                 self._write({**base, "ok": True, "stream": events})
             return recorded_stream()

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable
+import os
+import stat
 
 import yaml
 
 from .models import PolicySpec
 from .policy import compose_policies
-from .secret_resolver import SecretResolutionError
+from .secret_resolver import SecretResolutionError, SecretValue
 from .distributed import TenantScope
 
 
@@ -72,23 +74,60 @@ class TenantFileSecretResolver:
 
     scheme = "tenant-secret://"
 
-    def __init__(self, root: str | Path, scope: TenantScope):
+    def __init__(self, root: str | Path, scope: TenantScope, *, max_bytes: int = 65536):
+        if type(max_bytes) is not int or max_bytes <= 0:
+            raise ValueError("max_bytes must be a positive integer")
         self.root = Path(root).resolve()
         self.scope = scope
+        self.max_bytes = max_bytes
 
-    def can_resolve(self, ref: str) -> bool:
+    def supports(self, ref: str) -> bool:
         return isinstance(ref, str) and ref.startswith(self.scheme)
 
-    def resolve(self, ref: str) -> str:
-        if not self.can_resolve(ref):
+    def can_resolve(self, ref: str) -> bool:
+        # Compatibility with hosts using the older tenant-only API.
+        return self.supports(ref)
+
+    def resolve(self, ref: str) -> SecretValue:
+        if not self.supports(ref):
             raise SecretResolutionError(f"unsupported tenant secret reference: {ref}")
         name = ref[len(self.scheme):]
         if not name or name in {".", ".."} or "/" in name or "\\" in name:
             raise SecretResolutionError("tenant secret name must be one safe path segment")
-        raw = self.root / self.scope.tenant_id / self.scope.namespace / name
-        if raw.is_symlink():
-            raise SecretResolutionError("tenant secret file must not be a symlink")
-        path = tenant_path(self.root, self.scope, name)
-        if not path.exists() or not path.is_file():
-            raise SecretResolutionError(f"tenant secret not found: {name}")
-        return path.read_text(encoding="utf-8").rstrip("\r\n")
+        # Resolve path components using openat-style dir_fd operations. Checking
+        # Path.is_symlink() and later calling read_text() leaves a TOCTOU gap:
+        # a tenant could replace a file or ancestor directory after validation.
+        if not all(hasattr(os, x) for x in ("O_NOFOLLOW", "O_DIRECTORY")) or os.name != "posix":
+            raise SecretResolutionError("secure tenant secrets require POSIX no-follow directory handles")
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        fd = None
+        try:
+            fd = os.open(self.root, directory_flags)
+            for component in (self.scope.tenant_id, self.scope.namespace):
+                next_fd = os.open(component, directory_flags, dir_fd=fd)
+                os.close(fd)
+                fd = next_fd
+            secret_fd = os.open(name, file_flags, dir_fd=fd)
+            try:
+                info = os.fstat(secret_fd)
+                if not stat.S_ISREG(info.st_mode):
+                    raise SecretResolutionError("tenant secret must be a regular file")
+                if info.st_size > self.max_bytes:
+                    raise SecretResolutionError("tenant secret exceeds configured maximum size")
+                data = os.read(secret_fd, self.max_bytes + 1)
+                if len(data) > self.max_bytes:
+                    raise SecretResolutionError("tenant secret exceeds configured maximum size")
+                try:
+                    return SecretValue(data.decode("utf-8").rstrip("\r\n"), ref)
+                except UnicodeDecodeError as exc:
+                    raise SecretResolutionError("tenant secret must be UTF-8") from exc
+            finally:
+                os.close(secret_fd)
+        except OSError as exc:
+            raise SecretResolutionError(
+                f"secure tenant secret lookup failed (symlink or inaccessible path) for {name!r}"
+            ) from exc
+        finally:
+            if fd is not None:
+                os.close(fd)

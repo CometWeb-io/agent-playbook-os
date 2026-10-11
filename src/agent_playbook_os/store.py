@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+try:
+    import fcntl
+except ImportError:  # Windows does not provide POSIX flock.
+    fcntl = None
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import hashlib
@@ -219,19 +223,14 @@ class RunStore:
         self.cancel_path.unlink(missing_ok=True)
 
     def _lease_is_live(self, payload: dict[str, Any]) -> bool:
-        heartbeat = payload.get("heartbeat_at") or payload.get("acquired_at")
-        ttl = payload.get("ttl_seconds")
-        if isinstance(heartbeat, str) and isinstance(ttl, (int, float)) and ttl > 0:
-            try:
-                ts = datetime.fromisoformat(heartbeat.replace("Z", "+00:00"))
-                if datetime.now(timezone.utc) - ts > timedelta(seconds=float(ttl)):
-                    return False
-            except Exception:
-                return True
+        # A TTL is not proof of process death: event-loop scheduling pauses can
+        # exceed short heartbeat intervals even while a material call is live.
+        # The reference filesystem/SQLite stores are local-process coordinators,
+        # not cross-host fencing systems. Prefer a blocked run over duplicates.
         if payload.get("host") != socket.gethostname():
-            return True  # Remote/unknown host with a fresh heartbeat: fail closed.
+            return True  # Unknown remote process: only explicit break is safe.
         pid = payload.get("pid")
-        if not isinstance(pid, int) or pid <= 0:
+        if type(pid) is not int or pid <= 0:
             return True
         try:
             os.kill(pid, 0)
@@ -240,6 +239,24 @@ class RunStore:
         except PermissionError:
             return True
         return True
+
+    @contextmanager
+    def _stale_lease_reclaim_lock(self) -> Iterator[None]:
+        """Serialize stale-owner reclamation across local processes.
+
+        O_EXCL protects initial acquisition; a separate flock is needed so
+        two contenders cannot both unlink the same dead owner's lease.
+        """
+        if fcntl is None:
+            raise LeaseConflict("automatic stale lease reclaim is unavailable on this platform")
+        path = self.run_dir / ".lease-reclaim.lock"
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
 
     def acquire_lease(self, owner: str | None = None, *, ttl_seconds: float = 30.0) -> str:
         if ttl_seconds <= 0:
@@ -259,14 +276,23 @@ class RunStore:
         try:
             fd = os.open(self.lease_path, flags, 0o600)
         except FileExistsError:
-            try:
-                current = json.loads(self.lease_path.read_text(encoding="utf-8"))
-            except Exception:
-                current = {"owner": "unknown"}
-            if not self._lease_is_live(current):
-                self.lease_path.unlink(missing_ok=True)
-                return self.acquire_lease(owner, ttl_seconds=ttl_seconds)
-            raise LeaseConflict(f"run already leased by {current.get('owner', 'unknown')}")
+            with self._stale_lease_reclaim_lock():
+                try:
+                    current = json.loads(self.lease_path.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    # Another contender may have removed a dead lease; compete
+                    # normally for a new O_EXCL path, without unlinking theirs.
+                    current = None
+                except Exception:
+                    current = {"owner": "unknown"}
+                if current is not None and self._lease_is_live(current):
+                    raise LeaseConflict(f"run already leased by {current.get('owner', 'unknown')}")
+                if current is not None:
+                    self.lease_path.unlink(missing_ok=True)
+                try:
+                    fd = os.open(self.lease_path, flags, 0o600)
+                except FileExistsError as exc:
+                    raise LeaseConflict("another runner acquired the run lease") from exc
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f, sort_keys=True)
             f.flush()

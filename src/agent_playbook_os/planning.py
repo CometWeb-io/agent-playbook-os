@@ -357,6 +357,7 @@ async def run_operator_goal(
     promotion_registry=None,
     require_capabilities: bool = True,
     approve_ephemeral_plan: bool = False,
+    approved_plan_hash: str | None = None,
 ):
     """Prepare and execute a goal through the Operator control plane.
 
@@ -380,7 +381,7 @@ async def run_operator_goal(
         require_capabilities=require_capabilities,
     )
     persist_operator_review_artifacts(prepared, run_dir)
-    if prepared.decision.mode == "ephemeral" and not approve_ephemeral_plan:
+    if prepared.decision.mode == "ephemeral" and (not approve_ephemeral_plan or (approved_plan_hash is not None and approved_plan_hash != prepared.plan.semantic_hash)):
         from .errors import PlanApprovalRequired
         raise PlanApprovalRequired(prepared.plan.semantic_hash)
     executor = runner or Runner(runtime, compiler, enforce_capabilities=require_capabilities)

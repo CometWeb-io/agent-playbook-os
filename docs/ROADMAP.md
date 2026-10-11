@@ -41,7 +41,7 @@ Delivered:
 - durable bounded `while` refinement loops with mandatory iteration ceilings;
 - golden/adversarial eval coverage for bounded loops and generated-plan safety.
 
-## v0.6 — distributed execution profile
+## v0.7 candidates — production adapters and reliability
 
 Target work:
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import hashlib
 import re
 from typing import Any
 
@@ -29,7 +30,9 @@ class Compiler:
     def __init__(
         self, skill_resolver: SkillResolver | None = None, strict_skill_resolution: bool = False,
         host_policy=None,
+        pin_local_schemas: bool = True,
     ):
+        self.pin_local_schemas = pin_local_schemas
         self.skill_resolver = skill_resolver
         self.strict_skill_resolution = strict_skill_resolution
         self.host_policy = host_policy
@@ -43,7 +46,11 @@ class Compiler:
         inputs = dict(inputs or {})
         self._validate_inputs(playbook, inputs)
         values = self._materialize_inputs(playbook, inputs)
-        steps = playbook.spec.steps
+        # Local schema pins belong in the compiled artifact, never in the
+        # author's mutable Playbook object or its source-content hash.
+        steps = [step.model_copy(deep=True) for step in playbook.spec.steps]
+        if self.pin_local_schemas and source_path:
+            self._pin_output_schemas(steps, source_path)
 
         all_steps = list(self._walk_steps(steps))
         if len(all_steps) > playbook.spec.execution.max_steps:
@@ -95,6 +102,31 @@ class Compiler:
         plan.semantic_hash = compiled_plan_semantic_hash(plan)
         plan.integrity_hash = compiled_plan_integrity(plan)
         return plan
+
+    def _pin_output_schemas(self, steps: list[StepSpec], source_path: str) -> None:
+        base = Path(source_path).resolve().parent
+        for step in self._walk_steps(steps):
+            ref = step.output_schema
+            if not ref or ref.startswith(("http://", "https://")):
+                continue
+            raw = ref[5:] if ref.startswith("file:") else ref
+            path = (base / raw).resolve()
+            if not path.is_relative_to(base):
+                raise CompileError(f"step {step.id} output schema escapes playbook directory")
+            try:
+                if path.stat().st_size > 2_000_000:
+                    raise CompileError(f"step {step.id} output schema exceeds 2 MB")
+                payload = path.read_bytes()
+            except OSError as exc:
+                raise CompileError(f"cannot read output schema for {step.id}: {exc}") from exc
+            actual = "sha256:" + hashlib.sha256(payload).hexdigest()
+            if step.output_schema_hash:
+                expected = step.output_schema_hash
+                if not expected.startswith("sha256:"):
+                    expected = "sha256:" + expected
+                if expected.lower() != actual:
+                    raise CompileError(f"output schema pin differs from local file for {step.id}")
+            step.output_schema_hash = actual
 
     def _walk_steps(self, steps: list[StepSpec]):
         for step in steps:
@@ -234,9 +266,9 @@ class Compiler:
         for name, definition in defined.items():
             value = provided.get(name, definition.default)
             if definition.sensitive and value is not None:
-                if not isinstance(value, str) or not value.startswith(("env://", "secret://", "file-secret://")):
+                if not isinstance(value, str) or not value.startswith(("env://", "secret://", "file-secret://", "tenant-secret://")):
                     raise CompileError(
-                        f"sensitive input {name} must be a secret reference (env://, secret://, file-secret://), not a raw value"
+                        f"sensitive input {name} must be a secret reference (env://, secret://, file-secret://, tenant-secret://), not a raw value"
                     )
 
     def _materialize_inputs(self, playbook: Playbook, provided: dict[str, Any]) -> dict[str, Any]:

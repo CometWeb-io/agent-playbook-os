@@ -4,6 +4,7 @@ from typing import Any
 
 from ..capabilities import CapabilityDescriptor, CapabilityRegistry
 from ..models import ProviderReceipt, RuntimeResult, UsageMetrics
+from ..errors import ProviderContinuationRequired, ProviderRefusal
 from ..runtime import CallableRuntime
 from ._common import invoke_client, get_value, objective_text, jsonable_output
 
@@ -33,6 +34,21 @@ class OpenAIResponsesRuntime(CallableRuntime):
     async def execute_agent(self, step, inputs, context):
         create = self.client.responses.create
         response = await invoke_client(create, model=self.model, input=objective_text(step, inputs))
+        status = get_value(response, "status")
+        if status is not None and status != "completed":
+            raise ProviderContinuationRequired(f"OpenAI response is not completed (status={status})")
+        # Responses status=completed also describes completed function_call
+        # messages; those are not final assistant answers. Do not execute
+        # requested tools behind the kernel's policy/approval boundary.
+        items = get_value(response, "output", []) or []
+        for item in items:
+            kind = get_value(item, "type")
+            if kind == "function_call":
+                raise ProviderContinuationRequired("OpenAI response requests a function_call requiring a host tool loop")
+            if kind == "message":
+                for part in get_value(item, "content", []) or []:
+                    if get_value(part, "type") == "refusal":
+                        raise ProviderRefusal("OpenAI model refused the requested operation")
         output = get_value(response, "output_text")
         if output is None:
             output = jsonable_output(get_value(response, "output", response))

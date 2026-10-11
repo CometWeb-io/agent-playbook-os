@@ -61,6 +61,7 @@ class WorkStatus(str):
     PENDING = "PENDING"
     CLAIMED = "CLAIMED"
     COMPLETED = "COMPLETED"
+    WAITING_APPROVAL = "WAITING_APPROVAL"
     FAILED = "FAILED"
     DEAD = "DEAD"
     CANCELLED = "CANCELLED"
@@ -289,7 +290,7 @@ class SQLiteWorkQueue:
 
     def _reclaim_expired(self, con: sqlite3.Connection, now: float) -> None:
         rows = con.execute(
-            "SELECT work_id, attempts, max_attempts, heartbeat_at, claimed_at, visibility_timeout_seconds "
+            "SELECT work_id, attempts, max_attempts, heartbeat_at, claimed_at, visibility_timeout_seconds, cancel_requested "
             "FROM work_items WHERE status=?",
             (WorkStatus.CLAIMED,),
         ).fetchall()
@@ -298,7 +299,10 @@ class SQLiteWorkQueue:
             timeout = row["visibility_timeout_seconds"] or 30.0
             if heartbeat + timeout > now:
                 continue
-            status = WorkStatus.DEAD if row["attempts"] >= row["max_attempts"] else WorkStatus.PENDING
+            status = (
+                WorkStatus.CANCELLED if row["cancel_requested"] else
+                WorkStatus.DEAD if row["attempts"] >= row["max_attempts"] else WorkStatus.PENDING
+            )
             con.execute(
                 "UPDATE work_items SET status=?, claim_token=NULL, claimed_by=NULL, claimed_at=NULL, heartbeat_at=NULL, "
                 "visibility_timeout_seconds=NULL, available_at=?, error=?, updated_at=? WHERE work_id=?",
@@ -329,23 +333,31 @@ class SQLiteWorkQueue:
             if namespace is not None:
                 where.append("namespace=?")
                 params.append(namespace)
-            rows = con.execute(
-                "SELECT * FROM work_items WHERE " + " AND ".join(where) + " ORDER BY created_at, work_id LIMIT 256",
-                tuple(params),
-            ).fetchall()
             chosen = None
-            for row in rows:
-                required = set(json.loads(row["required_capabilities"]))
-                if _requirements_satisfied(required, capabilities):
-                    chosen = row
+            # A fixed first-page limit can permanently starve a capable worker
+            # when earlier queued items require other capabilities.
+            offset = 0
+            while chosen is None:
+                rows = con.execute(
+                    "SELECT * FROM work_items WHERE " + " AND ".join(where) +
+                    " ORDER BY created_at, work_id LIMIT 256 OFFSET ?",
+                    (*params, offset),
+                ).fetchall()
+                if not rows:
                     break
+                for row in rows:
+                    required = set(json.loads(row["required_capabilities"]))
+                    if _requirements_satisfied(required, capabilities):
+                        chosen = row
+                        break
+                offset += len(rows)
             if chosen is None:
                 con.commit()
                 return None
             claim_token = str(uuid4())
             fence = int(chosen["fence"]) + 1
             attempts = int(chosen["attempts"]) + 1
-            con.execute(
+            cursor = con.execute(
                 "UPDATE work_items SET status=?,attempts=?,claim_token=?,fence=?,claimed_by=?,claimed_at=?,heartbeat_at=?,"
                 "visibility_timeout_seconds=?,updated_at=? WHERE work_id=? AND status=?",
                 (
@@ -353,7 +365,7 @@ class SQLiteWorkQueue:
                     _now_iso(),chosen["work_id"],WorkStatus.PENDING,
                 ),
             )
-            if con.total_changes < 1:
+            if cursor.rowcount != 1:
                 con.rollback()
                 return None
             row = con.execute("SELECT * FROM work_items WHERE work_id=?", (chosen["work_id"],)).fetchone()
@@ -366,6 +378,12 @@ class SQLiteWorkQueue:
             raise ClaimLost(f"work item not found: {work_id}")
         if row["status"] != WorkStatus.CLAIMED or row["claim_token"] != claim_token or int(row["fence"]) != int(fence):
             raise ClaimLost(f"claim lost or fenced out for work_id={work_id}")
+        heartbeat = row["heartbeat_at"] or row["claimed_at"]
+        ttl = row["visibility_timeout_seconds"]
+        if heartbeat is None or ttl is None or float(heartbeat) + float(ttl) <= _now_ts():
+            raise ClaimLost(f"claim visibility lease expired for work_id={work_id}")
+        if row["cancel_requested"]:
+            raise ClaimLost(f"work item cancellation requested: {work_id}")
         return row
 
     def heartbeat(self, work_id: str, claim_token: str, fence: int) -> WorkItem:
@@ -384,13 +402,28 @@ class SQLiteWorkQueue:
             return self._row_to_item(row)
 
     def ack(self, work_id: str, claim_token: str, fence: int, result: dict[str, Any] | None = None) -> WorkItem:
+        # A worker acknowledging a delivery is not proof that the underlying
+        # workflow reached COMPLETED. Preserve the terminal or pending run
+        # status in the queue rather than reporting a false business success.
+        outcome = result.get("status") if isinstance(result, dict) else None
+        status_map = {
+            "COMPLETED": WorkStatus.COMPLETED,
+            "WAITING_APPROVAL": WorkStatus.WAITING_APPROVAL,
+            "FAILED": WorkStatus.FAILED,
+            "CANCELLED": WorkStatus.CANCELLED,
+            "PAUSED": WorkStatus.WAITING_APPROVAL,
+            "WAITING_INPUT": WorkStatus.WAITING_APPROVAL,
+        }
+        if outcome is not None and outcome not in status_map:
+            raise ValueError(f"cannot acknowledge nonterminal/unknown workflow status: {outcome!r}")
+        final_status = status_map.get(outcome, WorkStatus.COMPLETED)
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             self._assert_claim(con, work_id, claim_token, fence)
             con.execute(
                 "UPDATE work_items SET status=?,result=?,error=NULL,claim_token=NULL,claimed_by=NULL,claimed_at=NULL,"
                 "heartbeat_at=NULL,visibility_timeout_seconds=NULL,updated_at=? WHERE work_id=?",
-                (WorkStatus.COMPLETED, json.dumps(result, sort_keys=True) if result is not None else None, _now_iso(), work_id),
+                (final_status, json.dumps(result, sort_keys=True) if result is not None else None, _now_iso(), work_id),
             )
             row = con.execute("SELECT * FROM work_items WHERE work_id=?", (work_id,)).fetchone()
             con.commit()
@@ -569,8 +602,17 @@ class DistributedWorker:
             if self.allowed_run_root is not None and not run_dir.is_relative_to(self.allowed_run_root):
                 raise DistributedError("work item run_dir escapes allowed_run_root")
             plan = CompiledPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+            from .integrity import compiled_plan_integrity
+            if compiled_plan_integrity(plan) != plan.integrity_hash:
+                raise DistributedError("queued compiled plan integrity check failed")
+            actual_requirements = set(required_capabilities_for_plan(plan))
+            if not actual_requirements.issubset(set(item.required_capabilities)):
+                raise DistributedError("queued plan capability requirements differ from submitted work")
+            expected_plan_hash = item.metadata.get("submitted_plan_hash")
+            if expected_plan_hash is not None and expected_plan_hash != plan.integrity_hash:
+                raise DistributedError("queued compiled plan was changed after submission")
             if self.strict_capabilities:
-                missing = sorted(set(item.required_capabilities) - self.capabilities())
+                missing = sorted(actual_requirements - self.capabilities())
                 if missing:
                     raise DistributedError("worker capability mismatch after claim: " + ", ".join(missing))
             if self.policy_resolver is not None:
@@ -578,7 +620,25 @@ class DistributedWorker:
                 assert_plan_satisfies_host_policy(plan, self.policy_resolver(item))
             store = open_run_store(item.run_dir, item.store_backend)
             if store.has_state():
+                for verify in (store.verify_event_chain, store.verify_plan_integrity, store.verify_state_integrity):
+                    ok, error = verify()
+                    if not ok:
+                        raise DistributedError(f"recovered run integrity failed: {error}")
                 existing = store.load_state()
+                recorded = store.load_plan()
+                if (
+                    existing.plan_hash != plan.integrity_hash or
+                    existing.plan_semantic_hash != plan.semantic_hash or
+                    recorded.integrity_hash != plan.integrity_hash
+                ):
+                    raise DistributedError("recovered run does not belong to queued compiled plan")
+                origin = existing.metadata.get("distributed") or {}
+                if (
+                    origin.get("tenant_id") != item.tenant_id or
+                    origin.get("namespace") != item.namespace or
+                    origin.get("submission_run_id") != item.run_id
+                ):
+                    raise DistributedError("recovered run does not match tenant/namespace/submission identity")
                 if existing.status == RunStatus.COMPLETED:
                     result = {"run_id": existing.run_id, "status": existing.status.value, "recovered": True}
                     if self.coordinator is not None and lease is not None:
@@ -601,6 +661,7 @@ class DistributedWorker:
                     **item.metadata,
                     "distributed": {
                         "work_id": item.work_id,
+                        "submission_run_id": item.run_id,
                         "worker_id": self.worker_id,
                         "queue_name": item.queue_name,
                         "tenant_id": item.tenant_id,
