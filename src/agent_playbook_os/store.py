@@ -15,7 +15,7 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from .errors import LeaseConflict, ReconciliationRequired, SchemaVersionError
-from .integrity import compiled_plan_integrity, run_state_integrity
+from .integrity import canonical_hash, compiled_plan_integrity, run_state_integrity
 from .telemetry import redact
 from .migrations import RUN_STATE_CURRENT, RUN_STATE_MIGRATIONS
 from .models import (
@@ -353,44 +353,83 @@ class RunStore:
         finally:
             self.release_lease(token)
 
-    def attach_provider_receipt(
+    @contextmanager
+    def _operator_mutation_lease(self):
+        """Fence operator mutations against a concurrently active Runner.
+
+        Operator actions run in a separate short-lived lease, acquired before
+        reading the snapshot to avoid stale read / lost update races.
+        """
+        with self.lease(owner="operator:reconcile", ttl_seconds=30.0):
+            for name, check in (
+                ("events", self.verify_event_chain),
+                ("plan", self.verify_plan_integrity),
+                ("state", self.verify_state_integrity),
+            ):
+                try:
+                    ok, error = check()
+                except Exception as exc:
+                    raise ReconciliationRequired(
+                        f"cannot mutate run with invalid {name} evidence"
+                    ) from exc
+                if not ok:
+                    raise ReconciliationRequired(
+                        f"cannot mutate run with invalid {name} evidence: {error}"
+                    )
+            yield
+
+    def _commit_operator_transition(self, state: RunState, event_type: str, *, step_id=None, **data):
+        events = self.read_events()
+        seq = events[-1]["seq"] + 1 if events else 1
+        event = Event(
+            seq=seq, run_id=state.run_id, type=event_type,
+            step_id=step_id, data=redact(data),
+        )
+        transaction = getattr(self, "append_event_with_state", None)
+        if callable(transaction):
+            # Both journal entry and state snapshot are written in one SQLite
+            # transaction. A failing insert leaves neither write committed.
+            transaction(event, state)
+        else:
+            # Filesystem backend cannot offer cross-file transactions.
+            # The lease prevents concurrent writers; crash recovery still
+            # must verify both files before executing material effects.
+            self.save_state(state)
+            self.appen    def attach_provider_receipt(
         self,
         invocation_id: str,
         receipt: ProviderReceipt,
         *,
         actor: str = "operator",
     ) -> RunState:
-        ok, error = self.verify_state_integrity()
-        if not ok:
-            raise ReconciliationRequired(f"cannot attach receipt to tampered state: {error}")
-        state = self.load_state()
-        matches = [x for x in state.invocations if x.invocation_id == invocation_id]
-        if len(matches) != 1:
-            raise ReconciliationRequired(f"invocation not found: {invocation_id}")
-        inv = matches[0]
-        receipt = receipt.model_copy(update={"metadata": redact(receipt.metadata)})
-        if not any(x.receipt_id == receipt.receipt_id for x in state.provider_receipts):
-            state.provider_receipts.append(receipt)
-        if receipt.receipt_id not in inv.provider_receipt_ids:
-            inv.provider_receipt_ids.append(receipt.receipt_id)
-        inv.provider = inv.provider or receipt.provider
-        inv.provider_call_id = inv.provider_call_id or receipt.call_id
-        target = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
-        if target is not None and receipt.receipt_id not in target.provider_receipt_ids:
-            target.provider_receipt_ids.append(receipt.receipt_id)
-        self.save_state(state)
-        self.append_system_event(
-            state,
-            "provider.receipt_attached",
-            step_id=inv.step_id,
-            invocation_id=invocation_id,
-            receipt_id=receipt.receipt_id,
-            provider=receipt.provider,
-            call_id=receipt.call_id,
-            status=receipt.status,
-            actor=actor,
-        )
-        return state
+        with self._operator_mutation_lease():
+            state = self.load_state()
+            matches = [x for x in state.invocations if x.invocation_id == invocation_id]
+            if len(matches) != 1:
+                raise ReconciliationRequired(f"invocation not found: {invocation_id}")
+            inv = matches[0]
+            receipt = receipt.model_copy(update={"metadata": redact(receipt.metadata)})
+            if not any(x.receipt_id == receipt.receipt_id for x in state.provider_receipts):
+                state.provider_receipts.append(receipt)
+            if receipt.receipt_id not in inv.provider_receipt_ids:
+                inv.provider_receipt_ids.append(receipt.receipt_id)
+            inv.provider = inv.provider or receipt.provider
+            inv.provider_call_id = inv.provider_call_id or receipt.call_id
+            target = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
+            if target is not None and receipt.receipt_id not in target.provider_receipt_ids:
+                target.provider_receipt_ids.append(receipt.receipt_id)
+            self._commit_operator_transition(
+                state,
+                "provider.receipt_attached",
+                step_id=inv.step_id,
+                invocation_id=invocation_id,
+                receipt_id=receipt.receipt_id,
+                provider=receipt.provider,
+                call_id=receipt.call_id,
+                status=receipt.status,
+                actor=actor,
+            )
+            return state
 
     def reconcile_invocation(
         self,
@@ -403,43 +442,42 @@ class RunStore:
     ) -> RunState:
         if outcome not in {"not-executed", "succeeded"}:
             raise ValueError("outcome must be 'not-executed' or 'succeeded'")
-        ok, error = self.verify_state_integrity()
-        if not ok:
-            raise ReconciliationRequired(f"cannot reconcile tampered state: {error}")
-        state = self.load_state()
-        matches = [x for x in state.invocations if x.invocation_id == invocation_id]
-        if len(matches) != 1:
-            raise ReconciliationRequired(f"invocation not found: {invocation_id}")
-        inv = matches[0]
-        if inv.status not in {InvocationStatus.STARTED, InvocationStatus.UNKNOWN}:
-            raise ReconciliationRequired(f"invocation is not uncertain: {inv.status.value}")
-        inv.status = InvocationStatus.RECONCILED
-        inv.finished_at = _now()
-        inv.reconciled_by = actor
-        inv.reconciliation_note = note or outcome
-        if outcome == "succeeded":
-            if output is None:
-                raise ReconciliationRequired("succeeded reconciliation requires output")
-            inv.result_hash = "sha256:" + hashlib.sha256(
-                json.dumps(output, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode()
-            ).hexdigest()
-            target = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
-            if target is None:
-                raise ReconciliationRequired(f"step state not found for invocation: {inv.step_id}")
-            target.output = output
-            target.status = StepStatus.COMPLETED
-            target.error = None
-            target.finished_at = _now()
-        self.save_state(state)
-        self.append_system_event(
-            state,
-            "invocation.reconciled",
-            step_id=inv.step_id,
-            invocation_id=invocation_id,
-            outcome=outcome,
-            actor=actor,
-        )
-        return state
+        with self._operator_mutation_lease():
+            state = self.load_state()
+            matches = [x for x in state.invocations if x.invocation_id == invocation_id]
+            if len(matches) != 1:
+                raise ReconciliationRequired(f"invocation not found: {invocation_id}")
+            inv = matches[0]
+            if inv.status not in {InvocationStatus.STARTED, InvocationStatus.UNKNOWN}:
+                raise ReconciliationRequired(f"invocation is not uncertain: {inv.status.value}")
+            inv.status = InvocationStatus.RECONCILED
+            inv.finished_at = _now()
+            inv.reconciled_by = actor
+            inv.reconciliation_note = note or outcome
+            if outcome == "succeeded":
+                if output is None:
+                    raise ReconciliationRequired("succeeded reconciliation requires output")
+                from .secret_resolver import redact_secret_values
+                output = redact(redact_secret_values(output))
+                inv.result_hash = canonical_hash(output)
+                target = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
+                if target is None:
+                    raise ReconciliationRequired(f"step state not found for invocation: {inv.step_id}")
+                target.output = output
+                target.status = StepStatus.COMPLETED
+                target.error = None
+                target.finished_at = _now()
+            self._commit_operator_transition(
+                state,
+                "invocation.reconciled",
+                step_id=inv.step_id,
+                invocation_id=invocation_id,
+                outcome=outcome,
+                actor=actor,
+            )
+            return state
+
+  return state
 
     def write_artifact(
         self,
