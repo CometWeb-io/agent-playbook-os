@@ -586,8 +586,17 @@ class DistributedWorker:
             if self.allowed_run_root is not None and not run_dir.is_relative_to(self.allowed_run_root):
                 raise DistributedError("work item run_dir escapes allowed_run_root")
             plan = CompiledPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+            from .integrity import compiled_plan_integrity
+            if compiled_plan_integrity(plan) != plan.integrity_hash:
+                raise DistributedError("queued compiled plan integrity check failed")
+            actual_requirements = set(required_capabilities_for_plan(plan))
+            if not actual_requirements.issubset(set(item.required_capabilities)):
+                raise DistributedError("queued plan capability requirements differ from submitted work")
+            expected_plan_hash = item.metadata.get("submitted_plan_hash")
+            if expected_plan_hash is not None and expected_plan_hash != plan.integrity_hash:
+                raise DistributedError("queued compiled plan was changed after submission")
             if self.strict_capabilities:
-                missing = sorted(set(item.required_capabilities) - self.capabilities())
+                missing = sorted(actual_requirements - self.capabilities())
                 if missing:
                     raise DistributedError("worker capability mismatch after claim: " + ", ".join(missing))
             if self.policy_resolver is not None:
@@ -595,7 +604,25 @@ class DistributedWorker:
                 assert_plan_satisfies_host_policy(plan, self.policy_resolver(item))
             store = open_run_store(item.run_dir, item.store_backend)
             if store.has_state():
+                for verify in (store.verify_event_chain, store.verify_plan_integrity, store.verify_state_integrity):
+                    ok, error = verify()
+                    if not ok:
+                        raise DistributedError(f"recovered run integrity failed: {error}")
                 existing = store.load_state()
+                recorded = store.load_plan()
+                if (
+                    existing.plan_hash != plan.integrity_hash or
+                    existing.plan_semantic_hash != plan.semantic_hash or
+                    recorded.integrity_hash != plan.integrity_hash
+                ):
+                    raise DistributedError("recovered run does not belong to queued compiled plan")
+                origin = existing.metadata.get("distributed") or {}
+                if (
+                    origin.get("tenant_id") != item.tenant_id or
+                    origin.get("namespace") != item.namespace or
+                    origin.get("submission_run_id") != item.run_id
+                ):
+                    raise DistributedError("recovered run does not match tenant/namespace/submission identity")
                 if existing.status == RunStatus.COMPLETED:
                     result = {"run_id": existing.run_id, "status": existing.status.value, "recovered": True}
                     if self.coordinator is not None and lease is not None:
@@ -618,6 +645,7 @@ class DistributedWorker:
                     **item.metadata,
                     "distributed": {
                         "work_id": item.work_id,
+                        "submission_run_id": item.run_id,
                         "worker_id": self.worker_id,
                         "queue_name": item.queue_name,
                         "tenant_id": item.tenant_id,
