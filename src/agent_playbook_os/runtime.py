@@ -260,6 +260,7 @@ class CallableRuntime(ReferenceRuntime):
         eval_handler=None,
         isolation_modes: set[str] | None = None,
         idempotent_actions: set[str] | None = None,
+        action_side_effects: dict[str, str] | None = None,
         extra_capabilities: list[CapabilityDescriptor] | None = None,
     ):
         super().__init__(dry_run=False)
@@ -269,6 +270,11 @@ class CallableRuntime(ReferenceRuntime):
         self.eval_handler = eval_handler
         self.isolation_modes = set(isolation_modes or {"inline", "auto"})
         self.idempotent_actions = set(idempotent_actions or set())
+        self.action_side_effects = dict(action_side_effects or {})
+        valid_effects = {"none", "local", "external", "destructive"}
+        if any(name not in self.action_handlers or value not in valid_effects
+               for name, value in self.action_side_effects.items()):
+            raise ValueError("action_side_effects must map registered handlers to valid effect classes")
         self.extra_capabilities = list(extra_capabilities or [])
 
     async def _invoke(self, handler, step, inputs, context):
@@ -293,6 +299,8 @@ class CallableRuntime(ReferenceRuntime):
                 kind="action",
                 description=f"Injected action handler: {action}",
                 supports_idempotency=action in self.idempotent_actions,
+                side_effects=self.action_side_effects.get(action, "none"),
+                metadata={"side_effects_declared": action in self.action_side_effects},
             ))
         if self.skill_handlers:
             items.append(CapabilityDescriptor(
