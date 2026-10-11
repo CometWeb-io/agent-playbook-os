@@ -203,13 +203,21 @@ playbook run-plan .playbook-runs/<RUN_ID>/operator/compiled-plan.json \
   --strict-capabilities
 ```
 
-Or explicitly approve the generated plan in the same Operator flow:
+Or approve the **exact** reviewed semantic hash in a subsequent Operator invocation.
+A new plan with a different hash is rejected:
 
 ```bash
 playbook operate "review this release" \
   --planner-response planner-response.json \
-  --approve-plan
+  --approve-plan \
+  --approved-plan-hash sha256:<REVIEWED_PLAN_SEMANTIC_HASH>
 ```
+
+For injected Python tools, declare the real side-effect class in
+`CallableRuntime(action_side_effects={...})` and enable
+`Runner(enforce_capabilities=True)`. Unclassified injected tools fail strict
+preflight, and a playbook cannot understate a declared host action's effects.
+See the [hardening and trust-boundary guide](docs/RUNTIME_HARDENING_2026.md).
 
 Inspect and verify a run:
 
