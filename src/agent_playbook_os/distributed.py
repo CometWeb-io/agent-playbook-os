@@ -61,6 +61,7 @@ class WorkStatus(str):
     PENDING = "PENDING"
     CLAIMED = "CLAIMED"
     COMPLETED = "COMPLETED"
+    WAITING_APPROVAL = "WAITING_APPROVAL"
     FAILED = "FAILED"
     DEAD = "DEAD"
     CANCELLED = "CANCELLED"
@@ -401,13 +402,28 @@ class SQLiteWorkQueue:
             return self._row_to_item(row)
 
     def ack(self, work_id: str, claim_token: str, fence: int, result: dict[str, Any] | None = None) -> WorkItem:
+        # A worker acknowledging a delivery is not proof that the underlying
+        # workflow reached COMPLETED. Preserve the terminal or pending run
+        # status in the queue rather than reporting a false business success.
+        outcome = result.get("status") if isinstance(result, dict) else None
+        status_map = {
+            "COMPLETED": WorkStatus.COMPLETED,
+            "WAITING_APPROVAL": WorkStatus.WAITING_APPROVAL,
+            "FAILED": WorkStatus.FAILED,
+            "CANCELLED": WorkStatus.CANCELLED,
+            "PAUSED": WorkStatus.WAITING_APPROVAL,
+            "WAITING_INPUT": WorkStatus.WAITING_APPROVAL,
+        }
+        if outcome is not None and outcome not in status_map:
+            raise ValueError(f"cannot acknowledge nonterminal/unknown workflow status: {outcome!r}")
+        final_status = status_map.get(outcome, WorkStatus.COMPLETED)
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             self._assert_claim(con, work_id, claim_token, fence)
             con.execute(
                 "UPDATE work_items SET status=?,result=?,error=NULL,claim_token=NULL,claimed_by=NULL,claimed_at=NULL,"
                 "heartbeat_at=NULL,visibility_timeout_seconds=NULL,updated_at=? WHERE work_id=?",
-                (WorkStatus.COMPLETED, json.dumps(result, sort_keys=True) if result is not None else None, _now_iso(), work_id),
+                (final_status, json.dumps(result, sort_keys=True) if result is not None else None, _now_iso(), work_id),
             )
             row = con.execute("SELECT * FROM work_items WHERE work_id=?", (work_id,)).fetchone()
             con.commit()
