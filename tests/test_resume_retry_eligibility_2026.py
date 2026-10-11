@@ -57,14 +57,15 @@ async def test_classified_manual_only_outcomes_cannot_be_auto_retried(
 
     root = tmp_path / backend.backend_id
     rt = runtime(handler)
-    initial = await Runner(rt, store_factory=backend).run(plan(), root)
+    compiled = plan()
+    initial = await Runner(rt, store_factory=backend).run(compiled, root)
     assert initial.status == RunStatus.FAILED
     assert count == [1]
     inv = initial.invocations[0]
     assert inv.status == InvocationStatus.UNKNOWN
     assert inv.retry_eligible is False
     with pytest.raises(ReconciliationRequired, match="reconcile before resume"):
-        await Runner(rt, store_factory=backend).run(plan(), root, resume=True)
+        await Runner(rt, store_factory=backend).run(compiled, root, resume=True)
     assert count == [1]
     assert backend(root).verify_state_integrity() == (True, None)
 
