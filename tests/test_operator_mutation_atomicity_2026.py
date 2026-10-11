@@ -160,3 +160,55 @@ async def test_operator_manual_update_keeps_run_journal_sequence(tmp_path, backe
     )
     assert store.verify_event_chain() == (True, None)
     assert store.verify_state_integrity() == (True, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", [RunStore, SQLiteRunStore])
+async def test_receipt_id_collision_is_denied_without_state_or_event_changes(tmp_path, backend):
+    store, invocation = await completed(tmp_path, backend)
+    from uuid import UUID
+    first = ProviderReceipt(
+        receipt_id="fixed-receipt",
+        provider="provider-a", call_id="native-1", status="completed",
+    )
+    store.attach_provider_receipt(invocation, first)
+    before_state = store.load_state().model_dump(mode="json")
+    before_events = store.read_events()
+    with pytest.raises(ReconciliationRequired, match="receipt ID collision"):
+        backend(store.run_dir).attach_provider_receipt(
+            invocation, first.model_copy(update={"call_id": "forged-call"}),
+        )
+    assert backend(store.run_dir).load_state().model_dump(mode="json") == before_state
+    assert backend(store.run_dir).read_events() == before_events
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", [RunStore, SQLiteRunStore])
+async def test_reconciliation_note_is_redacted_before_persistence(tmp_path, backend):
+    store, inv = await completed(tmp_path, backend)
+    simulate_unknown(store, inv)
+    new_state = backend(store.run_dir).reconcile_invocation(
+        inv, outcome="not-executed", note="Bearer sensitive-example-token1234",
+    )
+    assert "sensitive-example-token1234" not in new_state.invocations[0].reconciliation_note
+    assert "sensitive-example-token1234" not in new_state.model_dump_json()
+    assert backend(store.run_dir).verify_state_integrity() == (True, None)
+
+
+@pytest.mark.asyncio
+async def test_cli_receipt_attach_redacts_returned_metadata(tmp_path, capsys):
+    from types import SimpleNamespace
+    from agent_playbook_os.cli import cmd_receipt_attach
+    store, invocation = await completed(tmp_path, RunStore)
+    args = SimpleNamespace(
+        run_dir=str(store.run_dir), invocation_id=invocation,
+        provider="manual", call_id="native-verified", operation="test",
+        status="completed", idempotency_key=None,
+        metadata=json.dumps({"api_key": "private-api-key-123", "result": "ok"}),
+        actor="ops",
+    )
+    cmd_receipt_attach(args)
+    printed = capsys.readouterr().out
+    assert "private-api-key-123" not in printed
+    assert '"api_key": "<redacted>"' in printed
+    assert store.verify_state_integrity() == (True, None)
