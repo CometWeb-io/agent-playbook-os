@@ -801,6 +801,102 @@ class Runner:
         schema = json.loads(payload.decode("utf-8"))
         jsonschema.validate(output, schema)
 
+    async def _run_subplaybook(self, step, params, plan, state, store, budget, parts):
+        """Execute a child with inherited policy, durable resume and approval routing.
+
+        Child execution is not a policy reset: its host policy can only tighten
+        the exact, already-compiled effective policy of the parent run.
+        """
+        from .models import BudgetSpec, PolicySpec
+        from .policy import compose_policies
+
+        if state.lineage_depth >= 8:
+            raise StepExecutionError("subplaybook nesting exceeds maximum depth 8")
+        base = (Path(plan.source_path).parent if plan.source_path else Path.cwd()).resolve()
+        child_path = (base / step.playbook).resolve()
+        if not child_path.is_relative_to(base):
+            raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
+        child_pb = load_playbook(child_path)
+
+        # Bound the child to the parent's REMAINING available budget, not
+        # a fresh, independent allowance for every nested workflow.
+        remaining = {}
+        for field in BudgetSpec.model_fields:
+            ceiling = budget.limit(field)
+            if ceiling is None:
+                continue
+            if field == "max_step_seconds":
+                remaining[field] = ceiling
+            elif field == "max_run_seconds":
+                seconds_left = ceiling - budget.elapsed_seconds(state)
+                if seconds_left <= 0:
+                    raise BudgetExceeded("no run time budget remains for subplaybook")
+                remaining[field] = seconds_left
+            else:
+                usage = getattr(state.usage, field.removeprefix("max_"))
+                available = ceiling - usage
+                if available <= 0:
+                    raise BudgetExceeded(f"no {field} budget remains for subplaybook")
+                remaining[field] = available
+        host_policy = compose_policies(plan.policy, PolicySpec(
+            budget=BudgetSpec(**remaining),
+            max_steps=plan.execution.max_steps,
+            max_parallel=plan.execution.max_parallel,
+            max_foreach_items=plan.execution.max_foreach_items,
+            max_loop_iterations=plan.execution.max_loop_iterations,
+        ))
+        compiler = Compiler(
+            skill_resolver=self.compiler.skill_resolver,
+            strict_skill_resolution=self.compiler.strict_skill_resolution,
+            host_policy=host_policy,
+        )
+        child_plan = compiler.compile(child_pb, params, source_path=str(child_path))
+        child_dir = store.run_dir.joinpath("subruns", *parts)
+        child_store = self.store_factory(child_dir)
+        resume = child_store.has_state()
+        if resume:
+            # The source can change between approval and resume. Only the
+            # persisted compiled plan may be resumed, if semantics still match.
+            for check in (child_store.verify_event_chain, child_store.verify_plan_integrity, child_store.verify_state_integrity):
+                ok, reason = check()
+                if not ok:
+                    raise IntegrityError(f"invalid child run: {reason}")
+            recorded_plan = child_store.load_plan()
+            if recorded_plan.semantic_hash != child_plan.semantic_hash:
+                raise IntegrityError("subplaybook changed since its first execution")
+            child_plan = recorded_plan
+        prefix = "/".join(parts)
+        child_approvals = {
+            value[len(prefix) + 1:] for value in self._active_approvals
+            if value.startswith(prefix + "/")
+        }
+        if resume and child_store.load_state().status == RunStatus.COMPLETED:
+            child_state = child_store.load_state()
+        else:
+            child_runner = Runner(
+                self.runtime, compiler, telemetry=self.telemetry, schema_resolver=self.schema_resolver,
+                secret_resolver=self.secret_resolver, store_factory=self.store_factory,
+                lease_ttl_seconds=self.lease_ttl_seconds,
+                lease_heartbeat_seconds=self.lease_heartbeat_seconds,
+                enforce_capabilities=self.enforce_capabilities,
+            )
+            child_state = await child_runner.run(
+                child_plan, child_dir, resume=resume, approvals=child_approvals,
+                approval_actor=self._approval_actor, cancellation_token=self._cancellation,
+                parent_run_id=state.run_id, root_run_id=state.root_run_id or state.run_id,
+                parent_lineage_depth=state.lineage_depth,
+                fork_reason=f"subplaybook:{prefix}",
+            )
+        if child_state.status == RunStatus.WAITING_APPROVAL:
+            if not child_state.pending_approvals:
+                raise StepExecutionError("subplaybook is waiting without an approval id")
+            raise ApprovalRequired(prefix + "/" + child_state.pending_approvals[0])
+        if child_state.status != RunStatus.COMPLETED:
+            raise StepExecutionError(f"subplaybook {prefix} ended as {child_state.status.value}")
+        state.usage.add(child_state.usage)
+        budget.check(state)
+        return child_state.outputs
+
     async def _execute_step(self, step, plan, state, store, control, budget: BudgetController):
         context = self._context(plan, state, control=control)
         params = render(step.with_, context)
@@ -855,30 +951,7 @@ class Runner:
         if step.type == "while":
             return await self._execute_while(step, plan, state, store, budget, context)
         if step.type == "playbook":
-            base = (Path(plan.source_path).parent if plan.source_path else Path.cwd()).resolve()
-            child_path = (base / step.playbook).resolve()
-            if not child_path.is_relative_to(base):
-                raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
-            child_pb = load_playbook(child_path)
-            child_plan = self.compiler.compile(child_pb, params, source_path=str(child_path))
-            child_dir = store.run_dir / "subruns" / step.id
-            child_runner = Runner(
-                self.runtime, self.compiler, telemetry=self.telemetry, schema_resolver=self.schema_resolver,
-                secret_resolver=self.secret_resolver, store_factory=self.store_factory,
-                lease_ttl_seconds=self.lease_ttl_seconds, lease_heartbeat_seconds=self.lease_heartbeat_seconds,
-                enforce_capabilities=self.enforce_capabilities,
-            )
-            child_state = await child_runner.run(
-                child_plan, child_dir, parent_run_id=state.run_id,
-                root_run_id=state.root_run_id or state.run_id,
-                fork_reason=f"subplaybook:{step.id}",
-                parent_lineage_depth=state.lineage_depth,
-            )
-            if child_state.status != RunStatus.COMPLETED:
-                raise StepExecutionError(f"subplaybook {step.id} ended as {child_state.status.value}")
-            state.usage.add(child_state.usage)
-            budget.check(state)
-            return child_state.outputs
+            return await self._run_subplaybook(step, params, plan, state, store, budget, (step.id,))
         raise StepExecutionError(f"unsupported step type: {step.type}")
 
 
@@ -1699,26 +1772,7 @@ class Runner:
                     return {"selected": render(case.value, context)}
             return {"selected": render(step.default, context)}
         if step.type == "playbook":
-            base = (Path(plan.source_path).parent if plan.source_path else Path.cwd()).resolve()
-            child_path = (base / step.playbook).resolve()
-            if not child_path.is_relative_to(base):
-                raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
-            child_pb = load_playbook(child_path)
-            child_plan = self.compiler.compile(child_pb, params, source_path=str(child_path))
-            child_dir = store.run_dir / "subruns" / parent_id / branch / step.id
-            child_state = await Runner(
-                self.runtime, self.compiler, telemetry=self.telemetry, schema_resolver=self.schema_resolver,
-                secret_resolver=self.secret_resolver, store_factory=self.store_factory,
-                lease_ttl_seconds=self.lease_ttl_seconds, lease_heartbeat_seconds=self.lease_heartbeat_seconds,
-                enforce_capabilities=self.enforce_capabilities,
-            ).run(
-                child_plan, child_dir, parent_run_id=state.run_id,
-                root_run_id=state.root_run_id or state.run_id,
-                fork_reason=f"subplaybook:{step.id}",
-                parent_lineage_depth=state.lineage_depth,
+            return await self._run_subplaybook(
+                step, params, plan, state, store, budget, (parent_id, branch, step.id)
             )
-            if child_state.status != RunStatus.COMPLETED:
-                raise StepExecutionError(f"subplaybook {step.id} ended as {child_state.status.value}")
-            state.usage.add(child_state.usage)
-            return child_state.outputs
         raise StepExecutionError(f"nested step type not supported: {step.type}")
