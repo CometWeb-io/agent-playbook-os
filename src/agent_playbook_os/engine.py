@@ -12,7 +12,7 @@ from .schema_resolver import validate_output_offline, MAX_SCHEMA_BYTES
 from .budgets import BudgetController
 from .compiler import Compiler
 from .errors import (
-    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, StreamProtocolError, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
+    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ProviderEvidenceConflict, StreamProtocolError, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
 )
 from .expressions import render, safe_eval
 from .integrity import compiled_plan_integrity
@@ -800,7 +800,13 @@ class Runner:
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
-                self._finish_invocation(invocation, state, store, error=exc)
+                material_conflict = (
+                    isinstance(exc, ProviderEvidenceConflict)
+                    and step.side_effects in {"local", "external", "destructive"}
+                )
+                self._finish_invocation(
+                    invocation, state, store, error=exc, uncertain=material_conflict
+                )
                 self._emit(store, state, "step.attempt_failed", step.id, attempt=attempt, error=str(exc))
             if attempt >= attempts or not self._should_retry(step, last):
                 break
@@ -813,6 +819,26 @@ class Runner:
                 await self._await_with_controls(asyncio.sleep(delay), delay + 1.0)
         assert last is not None
         raise last
+
+    @staticmethod
+    def _register_provider_receipt(state: RunState, receipt) -> None:
+        """Treat a receipt ID as immutable provider evidence, not an upsert key.
+
+        Provider status changes must be represented by a new receipt identity,
+        never by silently replacing or ignoring contradictory evidence.
+        """
+        prior = next(
+            (x for x in state.provider_receipts if x.receipt_id == receipt.receipt_id),
+            None,
+        )
+        if prior is not None:
+            if prior.model_dump(mode="json") != receipt.model_dump(mode="json"):
+                raise ProviderEvidenceConflict(
+                    f"conflicting provider receipt identity {receipt.receipt_id}; "
+                    "independent reconciliation required"
+                )
+            return
+        state.provider_receipts.append(receipt)
 
     async def _consume_runtime_output(self, raw, state, step_state, store, step_id, invocation=None, *, budget=None):
         streaming = hasattr(raw, "__aiter__")
@@ -872,8 +898,7 @@ class Runner:
                         receipt = event.receipt.model_copy(update={"metadata": redact(event.receipt.metadata)})
                         if receipt.idempotency_key is None:
                             receipt.idempotency_key = step_state.idempotency_key
-                        if not any(x.receipt_id == receipt.receipt_id for x in state.provider_receipts):
-                            state.provider_receipts.append(receipt)
+                        self._register_provider_receipt(state, receipt)
                         if receipt.receipt_id not in step_state.provider_receipt_ids:
                             step_state.provider_receipt_ids.append(receipt.receipt_id)
                         if invocation is not None:
@@ -921,15 +946,12 @@ class Runner:
             if ref.id not in existing_evidence:
                 state.evidence_refs.append(ref)
                 existing_evidence.add(ref.id)
-        existing_receipts = {x.receipt_id for x in state.provider_receipts}
         receipt_ids = []
         for receipt in raw.provider_receipts:
             safe_receipt = receipt.model_copy(update={"metadata": redact(receipt.metadata)})
             if safe_receipt.idempotency_key is None:
                 safe_receipt.idempotency_key = step_state.idempotency_key
-            if safe_receipt.receipt_id not in existing_receipts:
-                state.provider_receipts.append(safe_receipt)
-                existing_receipts.add(safe_receipt.receipt_id)
+            self._register_provider_receipt(state, safe_receipt)
             receipt_ids.append(safe_receipt.receipt_id)
             if safe_receipt.receipt_id not in step_state.provider_receipt_ids:
                 step_state.provider_receipt_ids.append(safe_receipt.receipt_id)
@@ -1419,7 +1441,13 @@ class Runner:
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
-                self._finish_invocation(invocation, state, store, error=exc)
+                material_conflict = (
+                    isinstance(exc, ProviderEvidenceConflict)
+                    and step.side_effects in {"local", "external", "destructive"}
+                )
+                self._finish_invocation(
+                    invocation, state, store, error=exc, uncertain=material_conflict
+                )
             self._emit(store, state, "foreach.step.attempt_failed", nested_key, parent=parent.id, index=index, attempt=attempt, error=str(last))
             if attempt >= attempts or not self._should_retry(step, last):
                 break
@@ -1722,7 +1750,13 @@ class Runner:
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
-                self._finish_invocation(invocation, state, store, error=exc)
+                material_conflict = (
+                    isinstance(exc, ProviderEvidenceConflict)
+                    and step.side_effects in {"local", "external", "destructive"}
+                )
+                self._finish_invocation(
+                    invocation, state, store, error=exc, uncertain=material_conflict
+                )
             self._emit(
                 store, state, "while.step.attempt_failed", nested_key,
                 parent=parent.id, iteration=iteration, attempt=attempt, error=str(last),
@@ -1992,7 +2026,13 @@ class Runner:
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
-                self._finish_invocation(invocation, state, store, error=exc)
+                material_conflict = (
+                    isinstance(exc, ProviderEvidenceConflict)
+                    and step.side_effects in {"local", "external", "destructive"}
+                )
+                self._finish_invocation(
+                    invocation, state, store, error=exc, uncertain=material_conflict
+                )
             self._emit(store, state, "parallel.step.attempt_failed", nested_key, parent=parent_id, branch=branch, attempt=attempt, error=str(last))
             if attempt >= attempts or not self._should_retry(step, last):
                 break
