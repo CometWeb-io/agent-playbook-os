@@ -161,6 +161,38 @@ class SQLiteRunStore(RunStore):
             con.execute("INSERT INTO events(seq,payload) VALUES(?,?)", (event.seq, event.model_dump_json()))
             con.commit()
 
+    def append_event_with_state(self, event: Event, state: RunState) -> None:
+        """Commit a hash-chained event and its corresponding snapshot atomically.
+
+        The Runner still saves some pre-dispatch safety journals separately,
+        intentionally, to avoid losing STARTED identities before a tool call.
+        This transaction guarantees that an emitted state transition and event
+        never partially commit as the result of an insert/serialization error.
+        """
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("SELECT payload FROM events ORDER BY seq DESC LIMIT 1").fetchone()
+            previous = json.loads(row[0]).get("event_hash") if row else None
+            expected_seq = int(json.loads(row[0])["seq"]) + 1 if row else 1
+            if event.seq != expected_seq:
+                raise ValueError(f"event sequence drift: expected {expected_seq}, got {event.seq}")
+            event.prev_hash = previous
+            body = event.model_dump(mode="json")
+            body["event_hash"] = None
+            canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+            event.event_hash = "sha256:" + hashlib.sha256(canonical).hexdigest()
+            # Serialize everything before mutating either durable table.
+            state.integrity_hash = run_state_integrity(state)
+            state_payload = state.model_dump_json(indent=2)
+            event_payload = event.model_dump_json()
+            con.execute("INSERT INTO events(seq,payload) VALUES(?,?)", (event.seq, event_payload))
+            con.execute(
+                "INSERT INTO kv(key,payload) VALUES('state',?) "
+                "ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
+                (state_payload,),
+            )
+            con.commit()
+
     def read_events(self):
         with self._connect() as con:
             return [json.loads(row[0]) for row in con.execute("SELECT payload FROM events ORDER BY seq")]
