@@ -114,6 +114,13 @@ def test_filesystem_lease_can_be_renewed_and_stale_lease_reclaimed(tmp_path):
     store.release_lease(token)
     token = store.acquire_lease("stale", ttl_seconds=0.02)
     time.sleep(0.04)
+    # Expiry alone must not revoke a live local PID. Simulate a dead
+    # process (e.g. after a host crash) before stale-owner reclamation.
+    with pytest.raises(LeaseConflict):
+        RunStore(tmp_path / "run").acquire_lease("live", ttl_seconds=1)
+    raw = json.loads(store.lease_path.read_text(encoding="utf-8"))
+    raw["pid"] = 999999999
+    store.lease_path.write_text(json.dumps(raw), encoding="utf-8")
     second = RunStore(tmp_path / "run").acquire_lease("new", ttl_seconds=1)
     assert second != token
     RunStore(tmp_path / "run").release_lease(second)
