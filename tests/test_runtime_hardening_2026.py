@@ -424,3 +424,46 @@ async def test_local_output_schema_is_pinned_at_compile_time(tmp_path):
     stale = await Runner(ReferenceRuntime()).run(plan, tmp_path / "stale")
     assert stale.status == RunStatus.FAILED
     assert "hash mismatch" in stale.steps["x"].error
+
+
+@pytest.mark.asyncio
+async def test_openai_completed_function_call_requires_host_handoff():
+    from agent_playbook_os.errors import ProviderContinuationRequired
+    client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_: {
+        "id": "resp_call", "status": "completed",
+        "output": [{"type": "function_call", "name": "publish", "call_id": "call_1"}],
+        "output_text": "",
+    }))
+    step = pb([{"id": "a", "type": "agent"}]).spec.steps[0]
+    with pytest.raises(ProviderContinuationRequired, match="function_call"):
+        await OpenAIResponsesRuntime(client, model="demo").execute_agent(step, {}, {})
+
+
+@pytest.mark.asyncio
+async def test_provider_continuation_must_not_be_retried_blindly(tmp_path):
+    from agent_playbook_os.errors import ProviderContinuationRequired
+    calls = []
+    def create(**kwargs):
+        calls.append(kwargs)
+        return {"id": "resp_1", "status": "incomplete", "output_text": "partial"}
+    client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    plan = Compiler().compile(pb([{
+        "id": "agent", "type": "agent",
+        "retry": {"max_attempts": 3}, "on_fail": "stop"
+    }]))
+    result = await Runner(OpenAIResponsesRuntime(client, model="demo")).run(plan, tmp_path / "run")
+    assert result.status == RunStatus.FAILED
+    assert len(calls) == 1
+    assert "ProviderContinuationRequired" in result.steps["agent"].error
+
+
+@pytest.mark.asyncio
+async def test_anthropic_refusal_is_not_a_normal_success():
+    from agent_playbook_os.errors import ProviderRefusal
+    client = SimpleNamespace(messages=SimpleNamespace(create=lambda **_: {
+        "id": "msg_refuse", "stop_reason": "refusal",
+        "content": [{"type": "text", "text": "I cannot do that."}],
+    }))
+    step = pb([{"id": "a", "type": "agent"}]).spec.steps[0]
+    with pytest.raises(ProviderRefusal):
+        await AnthropicMessagesRuntime(client, model="demo").execute_agent(step, {}, {})
