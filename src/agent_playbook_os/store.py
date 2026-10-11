@@ -411,7 +411,15 @@ class RunStore:
                 raise ReconciliationRequired(f"invocation not found: {invocation_id}")
             inv = matches[0]
             receipt = receipt.model_copy(update={"metadata": redact(receipt.metadata)})
-            if not any(x.receipt_id == receipt.receipt_id for x in state.provider_receipts):
+            prior = next(
+                (value for value in state.provider_receipts
+                 if value.receipt_id == receipt.receipt_id), None
+            )
+            if prior is not None and prior.model_dump(mode="json") != receipt.model_dump(mode="json"):
+                raise ReconciliationRequired(
+                    "provider receipt ID collision: existing evidence differs from submitted receipt"
+                )
+            if prior is None:
                 state.provider_receipts.append(receipt)
             if receipt.receipt_id not in inv.provider_receipt_ids:
                 inv.provider_receipt_ids.append(receipt.receipt_id)
@@ -455,7 +463,7 @@ class RunStore:
             inv.status = InvocationStatus.RECONCILED
             inv.finished_at = _now()
             inv.reconciled_by = actor
-            inv.reconciliation_note = note or outcome
+            inv.reconciliation_note = redact(note) if note else outcome
             if outcome == "succeeded":
                 if output is None:
                     raise ReconciliationRequired("succeeded reconciliation requires output")
