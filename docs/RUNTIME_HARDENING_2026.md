@@ -469,6 +469,10 @@ a succeeded reconciliation still fails closed.
 Regression evidence includes post-dispatch snapshot fault injection,
 top-level/parallel/foreach/while crash-window recovery on filesystem
 and SQLite, null results, schema-rejection non-skippability and
-distributed-worker recovery. It establishes safe no-repeat behavior for
-these tested reference scenarios, **not** exactly-once semantics for
-arbitrary external providers or multi-host storage.
+distributed-worker recovery. `inspect_run` now exposes
+`orphaned_success_invocations` and the
+`material_success_without_step_checkpoint` risk flag, including for
+older runs marked COMPLETED despite skipped or incomplete steps.
+It establishes safe no-repeat behavior for these tested reference
+scenarios, **not** exactly-once semantics for arbitrary external providers
+or multi-host storage.
