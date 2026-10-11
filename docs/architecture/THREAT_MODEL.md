@@ -45,7 +45,7 @@ Mitigation: every invocation receives durable identity and lifecycle state. A ma
 
 ### Concurrent resume executes the same work twice
 
-Mitigation: a renewable TTL lease guards active mutation/execution and is refreshed by heartbeat. A second runner fails with a lease conflict while ownership is live. Lease loss interrupts local waiting. For an in-flight material side effect, the invocation becomes `UNKNOWN` rather than being retried optimistically.
+Mitigation: a renewable lease guards active mutation/execution and is refreshed by heartbeat. For local reference stores, a delayed heartbeat does **not** prove that an alive owner PID has died; stale-owner filesystem reclamation uses a POSIX process lock and an independently dead PID. Unknown remote owners fail closed until explicit intervention. Distributed ownership still requires a dedicated fencing coordinator. Lease loss interrupts local waiting, and an in-flight material side effect becomes `UNKNOWN`.
 
 ### Approval replay or approval loss
 
@@ -95,7 +95,7 @@ Mitigation: reference loader rejects playbook files above a fixed size before pa
 
 ### Output schema declaration creates false assurance
 
-Mitigation: local schemas are path-confined and validated. Remote schemas require a SHA-256 pin plus an explicit resolver; the fetched bytes must match the pin before validation. Unsupported remote validation fails closed.
+Mitigation: local schemas are path-confined, automatically SHA-256 pinned at compilation when a source path is supplied, and validated at execution. Remote schemas require a SHA-256 pin plus an explicit resolver; the fetched bytes must match the pin before validation. Unsupported remote validation fails closed.
 
 ### Subplaybook path escape
 
