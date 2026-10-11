@@ -659,3 +659,13 @@ managed HMAC key via `--cassette-key-env` together with either
 written to the cassette input signature or preview, and replay with a
 different secret fails before consuming the next record. See
 [runtime hardening](docs/RUNTIME_HARDENING_2026.md).
+
+### Safe operator reconciliation
+
+Manual `reconcile` and `receipt attach` commands now acquire a per-run
+lease and verify existing event, plan and state integrity before mutation.
+On SQLite, the resulting audit event and state snapshot commit in one
+transaction; on the filesystem backend the writes remain independent.
+Conflicting reuse of a provider receipt ID is rejected, and returned
+CLI receipt metadata is redacted. See the
+[hardening guide](docs/RUNTIME_HARDENING_2026.md).
