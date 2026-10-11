@@ -126,3 +126,14 @@ A production distributed backend should additionally provide:
 - backup/restore and disaster-recovery procedures.
 
 The reference SQLite queue/coordinator exists to define and test semantics, not to replace those systems.
+
+## Approval boundary for queued work
+
+Do not interpret `WorkSubmission.approvals` or `approval_actor` as signed
+permission. In the reference worker, submitted preapprovals are refused by
+default; human gates transition to `WAITING_APPROVAL`. For authenticated
+integration hosts, inject `approval_authorizer(item, plan)`, returning an
+independently verified set of approved step IDs and the authenticated actor.
+The host is responsible for the session, authorization and anti-replay policy.
+The core does not implement an identity provider or assert a cryptographic
+approval grant. The standalone CLI disallows `queue enqueue --approve`.
