@@ -13,17 +13,17 @@ from .secret_resolver import redact_secret_values
 def _jsonable(value: Any) -> Any:
     if isinstance(value, RuntimeResult):
         safe = value.model_copy(deep=True)
-        safe.value = redact_secret_values(safe.value)
+        safe.value = redact(redact_secret_values(safe.value))
         for receipt in safe.provider_receipts:
-            receipt.metadata = redact_secret_values(receipt.metadata)
-        return {"__runtime_result__": True, "value": redact(safe.model_dump(mode="json"))}
+            receipt.metadata = redact(redact_secret_values(receipt.metadata))
+        return {"__runtime_result__": True, "value": safe.model_dump(mode="json")}
     if isinstance(value, RuntimeStreamEvent):
         safe = value.model_copy(deep=True)
-        safe.value = redact_secret_values(safe.value)
-        safe.metadata = redact_secret_values(safe.metadata)
+        safe.value = redact(redact_secret_values(safe.value))
+        safe.metadata = redact(redact_secret_values(safe.metadata))
         if safe.receipt is not None:
-            safe.receipt.metadata = redact_secret_values(safe.receipt.metadata)
-        return {"__runtime_stream_event__": True, "value": redact(safe.model_dump(mode="json"))}
+            safe.receipt.metadata = redact(redact_secret_values(safe.receipt.metadata))
+        return {"__runtime_stream_event__": True, "value": safe.model_dump(mode="json")}
     value = redact(value)
     if hasattr(value, "model_dump"):
         return redact(value.model_dump(mode="json"))
