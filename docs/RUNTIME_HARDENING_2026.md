@@ -206,3 +206,45 @@ rejects invalid UTF-8, and wraps the result in a redaction marker. This avoids
 the previous `stat`-then-`read_text` race. Roots must be trusted by the host.
 Non-POSIX systems currently fail closed rather than silently using an unsafe
 implementation. Cross-platform secure support requires an OS-native adapter.
+
+## Stream limits and provider identity (11 October 2026)
+
+The provider-neutral `Runner` now defaults to bounded asynchronous streams:
+
+| Runner option | Default | Meaning |
+| --- | ---: | --- |
+| `max_stream_events` | 10,000 | Absolute maximum event count in one step invocation |
+| `max_stream_event_bytes` | 2,000,000 | Maximum encoded size of any single provider event |
+| `max_stream_total_bytes` | 16,000,000 | Maximum cumulative encoded stream bytes per invocation |
+
+All values must be positive integers and the per-event ceiling cannot exceed
+the total ceiling. Hosts can override them for a reviewed workload. Limits are
+propagated to child runners. A stream may produce progress, usage, artifacts,
+receipts, evidence and logs, but **exactly one final `result` event** is
+required. Events following that terminal result and streams that end without
+a result fail closed. Provider async generators are closed on completion or
+failure to release held resources.
+
+Protocol/resource errors are `StreamProtocolError` (a
+`ProviderContinuationRequired` subclass). They cannot be retried
+blindly or swallowed by `on_fail=skip`. If a provider may have performed a
+material action, its invocation remains `UNKNOWN` until authoritative
+reconciliation.
+
+`OpenAIResponsesRuntime` now includes its configured `model` in runtime
+capability metadata. `AnthropicMessagesRuntime` includes both `model` and
+`max_tokens`. As a result, model/configuration changes between a run and
+`resume` are detected by the existing runtime fingerprint check. Continuing
+with different settings still requires explicit
+`allow_runtime_change=True` and a real host review. This fingerprint does
+not prove that the provider SDK, endpoint, credentials or arbitrary injected
+callable code remained unchanged; hosts must record and verify those identities.
+
+Canonical integrity hashing now rejects nonfinite floating-point values and
+typed runtime metrics disallow NaN/Infinity. This prevents invalid JSON
+hashes and nonfinite cost counters from bypassing deterministic budget checks.
+
+These protections are verified by local adversarial tests with injected
+async streams and stubbed provider clients. They are **not** live provider
+integration certification and do not enforce a remote network cut-off after
+SDK thread cancellation.
