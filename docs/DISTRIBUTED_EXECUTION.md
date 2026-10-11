@@ -98,11 +98,11 @@ playbook worker once \
   --strict-capabilities
 ```
 
-A queue/work item status of `COMPLETED` means the worker finished its claim and
-acknowledged the item. The underlying **run** may still be `WAITING_APPROVAL`
-(for example `kernel-demo` without `--approve`). Inspect the run directory and
-resume with `playbook resume` when a human gate is pending; do not treat worker
-`COMPLETED` alone as end-to-end playbook completion.
+The reference queue maps acknowledged run statuses to `COMPLETED`,
+`FAILED`, `CANCELLED` and `WAITING_APPROVAL`. A pending human gate no
+longer reports queue `COMPLETED`. Inspect and resume the run directory when an
+approval is pending. Even a completed run does not attest to external business
+success; receipts and downstream verification remain separate.
 
 Inspect operations:
 
