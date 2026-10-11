@@ -38,6 +38,14 @@ class ReconciliationRequired(StepExecutionError):
     pass
 
 
+class ProviderEvidenceConflict(ReconciliationRequired):
+    """Contradictory provider receipts share the same immutable evidence ID.
+
+    The downstream operation may already have occurred. Do not retry or
+    convert this into success until authoritative reconciliation.
+    """
+
+
 class LeaseConflict(StepExecutionError):
     pass
 
