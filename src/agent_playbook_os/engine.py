@@ -176,6 +176,21 @@ class Runner:
         return bool(fn(step)) if fn else False
 
     def _effective_isolation(self, step: StepSpec, plan) -> str:
+        # The host's tool classification is authoritative. A playbook may
+        # overstate effects, never downgrade a known material action to 'none'.
+        if step.type == "action":
+            caps_fn = getattr(self.runtime, "capabilities", None)
+            if callable(caps_fn):
+                registry = caps_fn()
+                descriptor = registry.get(f"action:{step.action}") if registry is not None else None
+                if descriptor is not None:
+                    levels = {"none": 0, "local": 1, "external": 2, "destructive": 3}
+                    preview = bool(getattr(self.runtime, "dry_run", False) and descriptor.supports_dry_run)
+                    if not preview and levels[step.side_effects] < levels[descriptor.side_effects]:
+                        raise StepExecutionError(
+                            f"action {step.action} is classified {descriptor.side_effects} by the host "
+                            f"but the playbook declares {step.side_effects}; cannot downgrade side effects"
+                        )
         requested = step.execution_isolation or plan.execution.isolation
         required = plan.policy.require_isolation_for.get(step.side_effects)
         if required:
