@@ -610,3 +610,12 @@ The built-in OpenAI/Anthropic injected-client adapters fingerprint model
 configuration, allowing resume to detect a changed model or `max_tokens`.
 See [runtime hardening](docs/RUNTIME_HARDENING_2026.md) for precise
 limits, residual risks and the corresponding regression tests.
+
+### Safe JSON Schema output validation
+
+Pinned local/remote output schemas are self-contained. The runner accepts
+internal references (`#/$defs/...`, `#name`) but denies external
+`$ref` and `$dynamicRef` targets instead of fetching HTTP, file or other
+schemas implicitly. The reference validator also limits schema size and
+nesting. See [runtime hardening](docs/RUNTIME_HARDENING_2026.md) for the exact
+limits, compatibility expectations and residual complexity risks.

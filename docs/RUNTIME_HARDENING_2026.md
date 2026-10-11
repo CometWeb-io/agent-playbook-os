@@ -265,3 +265,26 @@ stateless dependencies (e.g. a properly thread-safe runtime adapter or
 read-only catalog) is separate from sharing a mutable Runner instance.
 These guards prevent accidental in-process state contamination; they do
 not substitute for fencing and leases across multiple processes or hosts.
+
+## Self-contained output JSON Schemas (11 October 2026)
+
+Output-schema validation runs against the **pinned bytes** provided by the
+compiler or explicitly configured host schema resolver. It must not retrieve
+unrelated resources from a `$ref`, `$dynamicRef`, or `$recursiveRef`
+inside those bytes, including HTTP(S), `file://`, relative files or
+service-local addresses. The kernel rejects nonfragment references, constructs
+an explicit `referencing.Registry` whose `retrieve` callback fails closed,
+and permits internal JSON Pointers or anchors such as `#/$defs/item` and
+`#item`.
+
+Schema size is limited to **2,000,000 bytes**, with structural bounds of
+**20,000 nodes** and nesting depth **80**. This protects against untrusted
+schema inflation and limits the reach of registry/resolution. Runtime output
+validation still uses the declared JSON Schema semantics; it does not
+transform or auto-correct the output. Hosts that need external dependencies
+must fetch, authorize, pin and bundle those resources independently before
+executing a playbook. Runtime implicit network retrieval remains prohibited.
+
+This hardening does not make arbitrarily complex schemas safe from high CPU
+cost by itself. Production hosts should additionally enforce process-level
+resource limits and reject overly complex schemas during review.

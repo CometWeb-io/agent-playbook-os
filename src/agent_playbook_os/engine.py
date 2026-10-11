@@ -7,7 +7,7 @@ import json
 import time
 from typing import Any
 
-import jsonschema
+from .schema_resolver import validate_output_offline, MAX_SCHEMA_BYTES
 
 from .budgets import BudgetController
 from .compiler import Compiler
@@ -962,21 +962,25 @@ class Runner:
                     "remote output_schema requires a schema-resolver adapter; reference runtime fails closed"
                 )
             schema = self.schema_resolver.resolve(ref, step.output_schema_hash)
-            jsonschema.validate(output, schema)
+            validate_output_offline(output, schema)
             return
         base = (Path(plan.source_path).parent if plan.source_path else Path.cwd()).resolve()
         raw = ref[5:] if ref.startswith("file:") else ref
         schema_path = (base / raw).resolve()
         if not schema_path.is_relative_to(base):
             raise StepExecutionError(f"output schema path escapes playbook directory: {ref}")
+        if schema_path.stat().st_size > MAX_SCHEMA_BYTES:
+            raise StepExecutionError("local output JSON Schema exceeds 2 MB")
         payload = schema_path.read_bytes()
+        if len(payload) > MAX_SCHEMA_BYTES:
+            raise StepExecutionError("local output JSON Schema exceeds 2 MB")
         if step.output_schema_hash:
             actual = "sha256:" + __import__("hashlib").sha256(payload).hexdigest()
             expected = step.output_schema_hash if step.output_schema_hash.startswith("sha256:") else "sha256:" + step.output_schema_hash
             if actual.lower() != expected.lower():
                 raise IntegrityError(f"local output schema hash mismatch: expected={expected} actual={actual}")
         schema = json.loads(payload.decode("utf-8"))
-        jsonschema.validate(output, schema)
+        validate_output_offline(output, schema)
 
     def _render_step_params(self, step: StepSpec, context: dict[str, Any]):
         raw = render(step.with_, context)
