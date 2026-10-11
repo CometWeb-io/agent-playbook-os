@@ -816,6 +816,14 @@ class Runner:
         schema = json.loads(payload.decode("utf-8"))
         jsonschema.validate(output, schema)
 
+    def _render_step_params(self, step: StepSpec, context: dict[str, Any]):
+        raw = render(step.with_, context)
+        if step.type == "playbook":
+            # Child input values become durable compiled plan material.
+            # Never serialize resolved credential bytes into that plan.
+            return raw
+        return resolve_secret_references(raw, self.secret_resolver)
+
     async def _run_subplaybook(self, step, params, plan, state, store, budget, parts):
         """Execute a child with inherited policy, durable resume and approval routing.
 
@@ -919,8 +927,7 @@ class Runner:
 
     async def _execute_step(self, step, plan, state, store, control, budget: BudgetController):
         context = self._context(plan, state, control=control)
-        params = render(step.with_, context)
-        params = resolve_secret_references(params, self.secret_resolver)
+        params = self._render_step_params(step, context)
         if step.type == "skill":
             self._emit(store, state, "skill.invoked", step.id, skill=step.uses, idempotency_key=control.get("idempotency_key"))
             return await self.runtime.execute_skill(step, params, context)
@@ -1158,7 +1165,7 @@ class Runner:
             context = self._context(
                 plan, state, extra_steps=dict(local), control=control, extra_context=extra_context
             )
-            params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+            params = self._render_step_params(step, context)
             self._emit(store, state, "foreach.step.attempt_started", nested_key, parent=parent.id, index=index, attempt=attempt)
             invocation = self._begin_invocation(step, state, local_state, store, step_id=nested_key, attempt=attempt)
             if invocation is not None:
@@ -1166,7 +1173,7 @@ class Runner:
                 context = self._context(
                     plan, state, extra_steps=dict(local), control=control, extra_context=extra_context
                 )
-                params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+                params = self._render_step_params(step, context)
             try:
                 timeout = budget.effective_step_timeout(step.timeout_seconds, state)
                 if timeout is not None and timeout <= 0:
@@ -1437,7 +1444,7 @@ class Runner:
                 plan, state, extra_steps=dict(local), control=control,
                 extra_context=extra_context,
             )
-            params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+            params = self._render_step_params(step, context)
             self._emit(
                 store, state, "while.step.attempt_started", nested_key,
                 parent=parent.id, iteration=iteration, attempt=attempt,
@@ -1451,7 +1458,7 @@ class Runner:
                     plan, state, extra_steps=dict(local), control=control,
                     extra_context=extra_context,
                 )
-                params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+                params = self._render_step_params(step, context)
             try:
                 timeout = budget.effective_step_timeout(step.timeout_seconds, state)
                 if timeout is not None and timeout <= 0:
@@ -1702,7 +1709,7 @@ class Runner:
                 "isolation": self._effective_isolation(step, plan),
             }
             context = self._context(plan, state, extra_steps=extra, control=control)
-            params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+            params = self._render_step_params(step, context)
             self._emit(store, state, "parallel.step.attempt_started", nested_key, parent=parent_id, branch=branch, attempt=attempt)
             invocation = self._begin_invocation(
                 step, state, local_state, store, step_id=nested_key, attempt=attempt
@@ -1710,7 +1717,7 @@ class Runner:
             if invocation is not None:
                 control["invocation_id"] = invocation.invocation_id
                 context = self._context(plan, state, extra_steps=extra, control=control)
-                params = resolve_secret_references(render(step.with_, context), self.secret_resolver)
+                params = self._render_step_params(step, context)
             try:
                 timeout = budget.effective_step_timeout(step.timeout_seconds, state)
                 if timeout is not None and timeout <= 0:
