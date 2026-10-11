@@ -17,6 +17,10 @@ def compiled_plan_integrity(plan_or_dict: Any) -> str:
         data = dict(plan_or_dict)
     data = dict(data)
     data.pop("integrity_hash", None)
+    # Preserve the exact v2 integrity identity of existing plans where the
+    # optional subplaybook lock manifest did not exist yet.
+    if not data.get("subplaybook_locks"):
+        data.pop("subplaybook_locks", None)
     return canonical_hash(data)
 
 
@@ -39,6 +43,8 @@ def compiled_plan_semantic_hash(plan_or_dict: Any) -> str:
     data = dict(data)
     for key in ("integrity_hash", "semantic_hash", "compiled_at", "source_path"):
         data.pop(key, None)
+    if not data.get("subplaybook_locks"):
+        data.pop("subplaybook_locks", None)
     locks = data.get("skill_lock", {})
     normalized_locks = {}
     for sid, entry in locks.items():
