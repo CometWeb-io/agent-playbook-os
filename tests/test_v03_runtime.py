@@ -6,7 +6,7 @@ import pytest
 
 from agent_playbook_os.compiler import Compiler
 from agent_playbook_os.engine import Runner
-from agent_playbook_os.errors import CompileError, LeaseConflict, ReconciliationRequired, StepExecutionError
+from agent_playbook_os.errors import CompileError, LeaseConflict, NoSideEffectPerformed, ReconciliationRequired, StepExecutionError
 from agent_playbook_os.models import InvocationRecord, InvocationStatus, Playbook, RunStatus, StepStatus
 from agent_playbook_os.recording import RecordingRuntime, ReplayRuntime
 from agent_playbook_os.runtime import MockRuntime, ReferenceRuntime
@@ -164,7 +164,9 @@ async def test_approval_record_survives_failed_run_and_resume(tmp_path):
         "id": "write", "type": "action", "action": "set", "side_effects": "external", "with": {"value": 1}
     }])
     plan = Compiler().compile(playbook)
-    runtime = MockRuntime(action_outputs={"write": [ValueError("first failure"), 1]})
+    # This host mock proves the first call was rejected before taking effect.
+    # A generic ValueError after material dispatch would now be UNKNOWN.
+    runtime = MockRuntime(action_outputs={"write": [NoSideEffectPerformed("no call applied"), 1]})
     run_dir = tmp_path / "run"
     failed = await Runner(runtime).run(plan, run_dir, approvals={"write"}, approval_actor="alice")
     assert failed.status == RunStatus.FAILED
