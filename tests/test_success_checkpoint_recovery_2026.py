@@ -321,3 +321,57 @@ async def test_pure_invalid_result_can_still_follow_explicit_skip_policy(tmp_pat
     )
     assert state.status == RunStatus.COMPLETED
     assert state.steps["compute"].status == StepStatus.SKIPPED
+
+
+@pytest.mark.asyncio
+async def test_distributed_worker_does_not_replay_orphaned_successful_effect(tmp_path):
+    from agent_playbook_os.distributed import (
+        DistributedWorker, SQLiteWorkQueue, WorkSubmission, WorkStatus,
+        required_capabilities_for_plan,
+    )
+    calls = []
+
+    async def charge(step, inputs, context):
+        calls.append("external-effect")
+        return 7
+
+    runtime = CallableRuntime(
+        actions={"charge": charge},
+        action_side_effects={"charge": "external"},
+    )
+    compiled = plan()
+    compiled_path = tmp_path / "plan.json"
+    compiled_path.write_text(compiled.model_dump_json(), encoding="utf-8")
+    root = tmp_path / "durable-run"
+    await Runner(runtime).run(
+        compiled, root,
+        run_metadata={"distributed": {
+            "tenant_id": "acme", "namespace": "production",
+            "submission_run_id": "job-run", "work_id": "job-1",
+        }},
+    )
+    store = RunStore(root)
+    state = store.load_state()
+    state.status = RunStatus.FAILED
+    state.steps["charge"].status = StepStatus.RUNNING
+    state.steps["charge"].output = None
+    store.save_state(state)
+
+    queue = SQLiteWorkQueue(tmp_path / "queue.sqlite3")
+    queue.enqueue(WorkSubmission(
+        work_id="job-1", run_id="job-run",
+        tenant_id="acme", namespace="production",
+        run_dir=str(root), plan_path=str(compiled_path),
+        required_capabilities=required_capabilities_for_plan(compiled),
+        metadata={"submitted_plan_hash": compiled.integrity_hash},
+        max_attempts=2,
+    ))
+    worker = DistributedWorker(
+        queue=queue, runtime=runtime, worker_id="recoverer",
+        runner_factory=lambda **kwargs: Runner(runtime),
+    )
+    result = (await worker.run_once())[0]
+    assert result.error is not None
+    assert "succeeded without a completed step checkpoint" in result.error
+    assert calls == ["external-effect"]
+    assert queue.get("job-1").status == WorkStatus.PENDING
