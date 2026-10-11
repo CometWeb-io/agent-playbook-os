@@ -751,12 +751,12 @@ def cmd_reconcile(args):
             output = json.loads(args.output)
         except json.JSONDecodeError:
             output = args.output
+    kwargs = {"outcome": args.outcome, "actor": args.actor, "note": args.note}
+    if args.output is not None:
+        # `--output null` is a supplied JSON null, not an omitted argument.
+        kwargs["output"] = output
     state = open_run_store(args.run_dir).reconcile_invocation(
-        args.invocation_id,
-        outcome=args.outcome,
-        actor=args.actor,
-        output=output,
-        note=args.note,
+        args.invocation_id, **kwargs
     )
     print(state.model_dump_json(indent=2))
 
