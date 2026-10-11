@@ -56,3 +56,7 @@ Do not claim that passing structural tests proves factual correctness of externa
 38. SQLite operator mutation must commit state and audit event atomically;
 39. reject conflicting receipt identities and redact reconciliation notes/CLI results;
 40. do not infer real-world external success from a manually reconciled state alone.
+
+41. receipt, artifact and evidence IDs are immutable within a run; conflicting duplicates fail closed;
+42. if conflicting evidence arrives after material dispatch, journal UNKNOWN rather than retrying automatically;
+43. provider-native receipt status transitions require versioned IDs or an explicitly governed update contract.
