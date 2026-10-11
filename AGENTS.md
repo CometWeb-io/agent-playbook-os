@@ -42,3 +42,8 @@ Do not claim that passing structural tests proves factual correctness of externa
 27. never treat a rejected/incomplete stream with material side effects as safe to retry;
 28. fingerprint model configuration so resumed executions cannot silently switch models;
 29. reject nonfinite cost/usage/state values before durable hashing and budgeting.
+
+30. human approval strings from queue inputs are not grants; use host-verified, scope-bound signatures;
+31. never copy signed bearer grants or untrusted queue metadata into durable run outputs or logs;
+32. approval signatures bind destination, work, tenant, exact plan hash and bounded validity window;
+33. distinguish issuer authentication from actual human authentication and one-time authorization.
