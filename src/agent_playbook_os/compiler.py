@@ -234,9 +234,9 @@ class Compiler:
         for name, definition in defined.items():
             value = provided.get(name, definition.default)
             if definition.sensitive and value is not None:
-                if not isinstance(value, str) or not value.startswith(("env://", "secret://", "file-secret://")):
+                if not isinstance(value, str) or not value.startswith(("env://", "secret://", "file-secret://", "tenant-secret://")):
                     raise CompileError(
-                        f"sensitive input {name} must be a secret reference (env://, secret://, file-secret://), not a raw value"
+                        f"sensitive input {name} must be a secret reference (env://, secret://, file-secret://, tenant-secret://), not a raw value"
                     )
 
     def _materialize_inputs(self, playbook: Playbook, provided: dict[str, Any]) -> dict[str, Any]:
