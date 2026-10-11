@@ -280,6 +280,8 @@ class ReplayRuntime:
             elif legacy == hashed:
                 raise IntegrityError("cannot mix hashed and legacy cassette records")
             if not hashed:
+                if self.integrity_key is not None:
+                    raise IntegrityError("authenticated replay cannot accept unauthenticated legacy records")
                 if not allow_legacy:
                     raise IntegrityError("legacy cassette requires explicit allow_legacy=True")
             else:
