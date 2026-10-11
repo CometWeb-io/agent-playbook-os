@@ -269,7 +269,9 @@ async def test_cli_accepts_host_issued_grant_and_worker_verifies_from_key_env(
         "--work-id", "work-123", "--approval-grant-file", str(grant_path),
     ])
     cmd_queue_enqueue(enqueue)
-    capsys.readouterr()
+    printed = capsys.readouterr().out
+    assert "<redacted:approval-grant>" in printed
+    assert grant["signature"] not in printed
     monkeypatch.setenv("APBOS_TEST_GRANT_KEY", "K" * 32)
     worker = parser.parse_args([
         "worker", "once", "--queue-db", str(queue_path),
@@ -280,13 +282,17 @@ async def test_cli_accepts_host_issued_grant_and_worker_verifies_from_key_env(
         "--allowed-run-root", str(run_root),
     ])
     await cmd_worker_once_async(worker)
-    capsys.readouterr()
+    worker_output = capsys.readouterr().out
+    assert grant["signature"] not in worker_output
     item = SQLiteWorkQueue(queue_path).get("work-123")
     assert item.status == WorkStatus.COMPLETED
     state = RunStore(run_root / "acme" / "production" / "run-123").load_state()
     assert state.status == RunStatus.COMPLETED
     assert len(state.approvals) == 1
     assert state.approvals[0].actor == "reviewer-verified-by-host"
+    assert "approval_grant" not in state.metadata
+    assert grant["signature"] not in json.dumps(state.model_dump(mode="json"))
+    assert state.metadata["submitted_metadata_hash"].startswith("sha256:")
 
 
 def test_signed_enqueue_refuses_altered_submission_scope(tmp_path):
