@@ -157,3 +157,51 @@ def test_invalid_recording_limits(invalid, tmp_path):
         RecordingRuntime(ReferenceRuntime(), tmp_path / "a", max_record_bytes=invalid)
     with pytest.raises(ValueError):
         ReplayRuntime(tmp_path / "a", max_records=invalid)
+
+
+def test_authenticated_cassette_requires_matching_hmac_key(tmp_path):
+    key = b"secret-signing-key-" + b"K" * 32
+    cassette = tmp_path / "authenticated.jsonl"
+    recorder = RecordingRuntime(ReferenceRuntime(), cassette, integrity_key=key)
+    recorder._write({"kind": "action", "step_id": "a", "signature": "sig", "ok": True, "output": "yes"})
+    record = json.loads(cassette.read_text())
+    assert record["record_mac"].startswith("hmac-sha256:")
+    assert len(ReplayRuntime(cassette, integrity_key=key).records) == 1
+    with pytest.raises(IntegrityError, match="requires an integrity_key"):
+        ReplayRuntime(cassette)
+    with pytest.raises(IntegrityError, match="authentication mismatch"):
+        ReplayRuntime(cassette, integrity_key=b"W" * 32)
+    with pytest.raises(SideEffectOutcomeUnknown):
+        RecordingRuntime(ReferenceRuntime(), cassette, integrity_key=b"W" * 32)._write(
+            {"kind": "action", "step_id": "b", "signature": "sig2", "ok": True, "output": 1}
+        )
+
+
+def test_hmac_detects_recomputed_plaintext_hash(tmp_path):
+    key = b"S" * 32
+    cassette = tmp_path / "authenticated.jsonl"
+    writer = RecordingRuntime(ReferenceRuntime(), cassette, integrity_key=key)
+    writer._write({"kind": "action", "step_id": "a", "signature": "sig", "ok": True, "output": 1})
+    row = json.loads(cassette.read_text())
+    row["output"] = 99
+    row["record_hash"] = canonical_hash({
+        k: v for k, v in row.items() if k not in {"record_hash", "record_mac"}
+    })
+    cassette.write_text(json.dumps(row) + "\n")
+    with pytest.raises(IntegrityError, match="authentication mismatch"):
+        ReplayRuntime(cassette, integrity_key=key)
+
+
+def test_authenticated_reader_never_downgrades_to_legacy(tmp_path):
+    cassette = tmp_path / "legacy.jsonl"
+    cassette.write_text(json.dumps({"kind": "action", "step_id": "x", "ok": True}) + "\n")
+    with pytest.raises(IntegrityError, match="authenticated replay"):
+        ReplayRuntime(cassette, allow_legacy=True, integrity_key=b"Z" * 32)
+
+
+@pytest.mark.parametrize("bad", [b"short", b"", "not bytes", True])
+def test_invalid_authentication_keys_are_rejected(tmp_path, bad):
+    with pytest.raises(ValueError, match="integrity_key"):
+        RecordingRuntime(ReferenceRuntime(), tmp_path / "new.jsonl", integrity_key=bad)
+    with pytest.raises(ValueError, match="integrity_key"):
+        ReplayRuntime(tmp_path / "missing.jsonl", integrity_key=bad)
