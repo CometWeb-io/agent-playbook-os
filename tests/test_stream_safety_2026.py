@@ -197,3 +197,24 @@ def test_integrity_hash_rejects_noncanonical_floats(nonfinite):
     from agent_playbook_os.integrity import canonical_hash
     with pytest.raises(ValueError):
         canonical_hash({"metric": nonfinite})
+
+
+@pytest.mark.asyncio
+async def test_stream_resource_is_closed_after_limit_abort(tmp_path):
+    closed = []
+    async def handler(step, inputs, context):
+        async def stream():
+            try:
+                for _ in range(100):
+                    yield RuntimeStreamEvent(type="progress", value="tick")
+            finally:
+                closed.append("yes")
+        return stream()
+    runtime = CallableRuntime(actions={"stream": handler})
+    state = await Runner(
+        runtime, max_stream_events=1, max_stream_event_bytes=4096,
+        max_stream_total_bytes=8192
+    ).run(plan(side_effects="external"), tmp_path / "run")
+    assert state.status == RunStatus.FAILED
+    assert state.invocations[0].status == InvocationStatus.UNKNOWN
+    assert closed == ["yes"]
