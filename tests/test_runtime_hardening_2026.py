@@ -614,3 +614,38 @@ async def test_partial_stream_persists_charged_usage_and_provider_receipts(tmp_p
     assert stored.invocations[0].provider_call_id == "resp_123"
     report = inspect_run(root)
     assert "unresolved_provider_acknowledgements" in report["risk_flags"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_budget_interrupts_before_next_chunk_and_requires_reconciliation(tmp_path):
+    from agent_playbook_os.errors import ReconciliationRequired
+    from agent_playbook_os.models import UsageMetrics, RuntimeStreamEvent
+    calls = []
+
+    async def expensive(step, inputs, context):
+        calls.append("invoke")
+        async def stream():
+            yield RuntimeStreamEvent(type="usage", usage=UsageMetrics(
+                model_calls=1, input_tokens=8, cost_usd=0.03
+            ))
+            calls.append("chunk-after-budget")
+            yield RuntimeStreamEvent(type="result", value={"ok": True})
+        return stream()
+
+    plan = Compiler().compile(pb([
+        {"id": "external", "type": "action", "action": "expensive",
+         "side_effects": "external", "on_fail": "skip"}
+    ], execution={"budget": {"max_input_tokens": 5}},
+       policy={"require_approval_for": []}))
+    runtime = CallableRuntime(
+        actions={"expensive": expensive},
+        action_side_effects={"expensive": "external"},
+    )
+    root = tmp_path / "run"
+    result = await Runner(runtime).run(plan, root)
+    assert result.status == RunStatus.FAILED
+    assert result.usage.input_tokens == 8
+    assert result.invocations[0].status == InvocationStatus.UNKNOWN
+    assert calls == ["invoke"]
+    with pytest.raises(ReconciliationRequired):
+        await Runner(runtime).run(plan, root, resume=True)
