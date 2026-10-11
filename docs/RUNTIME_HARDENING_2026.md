@@ -248,3 +248,20 @@ These protections are verified by local adversarial tests with injected
 async streams and stubbed provider clients. They are **not** live provider
 integration certification and do not enforce a remote network cut-off after
 SDK thread cancellation.
+
+## Runner instance ownership (11 October 2026)
+
+One `Runner` instance owns mutable execution state: event sequence, approved
+step IDs, cancellation token and active lease heartbeat. It **must not** be
+shared across simultaneous runs. Previously, a second invocation could
+overwrite this state while a first run was in flight. The reference runner
+now rejects a concurrent invocation before creating its second run directory.
+After completion or failure, the same instance may be used again; every
+fresh run resets event sequence to 1, while `resume` reconstructs its
+sequence from the persisted event log. Both paths have regression tests.
+
+For scalable hosts, create one Runner per claimed work item. Sharing
+stateless dependencies (e.g. a properly thread-safe runtime adapter or
+read-only catalog) is separate from sharing a mutable Runner instance.
+These guards prevent accidental in-process state contamination; they do
+not substitute for fencing and leases across multiple processes or hosts.
