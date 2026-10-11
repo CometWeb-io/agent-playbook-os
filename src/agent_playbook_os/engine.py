@@ -709,6 +709,13 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
+                raise
             except ProviderContinuationRequired as exc:
                 # A provider may have completed a remote operation even though
                 # its response still needs a tool result or continuation.
@@ -1261,6 +1268,13 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
+                raise
             except ProviderContinuationRequired as exc:
                 # A provider may have completed a remote operation even though
                 # its response still needs a tool result or continuation.
@@ -1557,6 +1571,13 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
+                raise
             except ProviderContinuationRequired as exc:
                 # A provider may have completed a remote operation even though
                 # its response still needs a tool result or continuation.
@@ -1819,6 +1840,13 @@ class Runner:
                     cancelled=step.side_effects == "none",
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
+                raise
+            except BudgetExceeded as exc:
+                # The observed cost may already correspond to a dispatched
+                # material operation; never assume the remote effect rolled
+                # back merely because our budget was exceeded mid-stream.
+                material = step.side_effects in {"local", "external", "destructive"}
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
                 raise
             except ProviderContinuationRequired as exc:
                 # A provider may have completed a remote operation even though
