@@ -18,7 +18,14 @@ Before modifying the kernel:
 12. never assume filesystem layout in runner logic — depend on the durable store contract;
 13. resolve credentials only through secret-resolver boundaries and preserve redaction;
 14. provider receipts are provenance, not proof of successful business outcome;
-15. capability/plugin discovery must not silently authorize execution code.
+15. capability/plugin discovery must not silently authorize execution code;
+16. expressions may inspect only plain data mappings/sequences, never Python object attributes;
+17. host-declared side effects are a minimum that playbooks cannot downgrade;
+18. uncertain material invocations and lost leases must never be masked by on_fail;
+19. child-run policies must inherit parent constraints, including during resume;
+20. review and execute exact immutable plan hashes; do not silently replan on approval;
+21. recording and replay must redact before JSON serialization without corrupting typed usage;
+22. worker recovery must verify tenant, submission, plan, state and event-chain identity.
 
 Run before declaring success:
 
