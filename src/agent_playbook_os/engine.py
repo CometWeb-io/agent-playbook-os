@@ -886,6 +886,18 @@ class Runner:
         if not child_path.is_relative_to(base):
             raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
         child_pb = load_playbook(child_path)
+        relative_child = child_path.relative_to(base).as_posix()
+        expected_hash = plan.subplaybook_locks.get(relative_child)
+        if expected_hash is None:
+            raise IntegrityError(
+                f"subplaybook {relative_child} was not locked in the compiled plan; "
+                "recompile and review the playbook before execution"
+            )
+        actual_hash = canonical_hash(child_pb.model_dump(mode="json", by_alias=True))
+        if actual_hash != expected_hash:
+            raise IntegrityError(
+                f"subplaybook {relative_child} changed after plan compilation"
+            )
 
         # Bound the child to the parent's REMAINING available budget, not
         # a fresh, independent allowance for every nested workflow.
