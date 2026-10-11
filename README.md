@@ -252,8 +252,10 @@ playbook worker once --queue-db .playbook-os/work.sqlite3 --allowed-run-root .pl
 playbook queue stats --queue-db .playbook-os/work.sqlite3
 ```
 
-Worker/queue `COMPLETED` only means the claim finished; the run may still be
-`WAITING_APPROVAL`. Resume the run directory when a human gate is pending.
+Queue acknowledgement now reflects the underlying run: `COMPLETED` means a
+completed playbook, `FAILED` a failed playbook, and `WAITING_APPROVAL`
+an unfinished run. Inspect the run directory and resume the human gate when
+required; queue acknowledgement alone never verifies the business outcome.
 
 
 Resume a human gate with an auditable actor:
