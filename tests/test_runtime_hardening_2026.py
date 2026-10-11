@@ -578,3 +578,39 @@ async def test_nonterminal_external_provider_outcome_requires_reconciliation(tmp
     with pytest.raises(ReconciliationRequired):
         await Runner(runtime).run(plan, root, resume=True)
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", [RunStore, SQLiteRunStore])
+async def test_partial_stream_persists_charged_usage_and_provider_receipts(tmp_path, backend):
+    from agent_playbook_os.models import RuntimeStreamEvent, UsageMetrics, ProviderReceipt
+    from agent_playbook_os.inspection import inspect_run
+
+    async def streaming(step, inputs, context):
+        async def stream():
+            yield RuntimeStreamEvent(
+                type="usage", usage=UsageMetrics(model_calls=1, input_tokens=120, output_tokens=8)
+            )
+            yield RuntimeStreamEvent(
+                type="receipt", receipt=ProviderReceipt(
+                    receipt_id="receipt-before-fault", call_id="resp_123", provider="fixture",
+                    status="accepted",
+                )
+            )
+            raise RuntimeError("stream disconnected after provider charged tokens")
+        return stream()
+
+    plan = Compiler().compile(pb([{"id": "stream", "type": "action", "action": "stream"}]))
+    root = tmp_path / backend.backend_id
+    state = await Runner(
+        CallableRuntime(actions={"stream": streaming}), store_factory=backend
+    ).run(plan, root)
+    assert state.status == RunStatus.FAILED
+    stored = backend(root).load_state()
+    assert stored.usage.model_calls == 1
+    assert stored.usage.input_tokens == 120
+    assert stored.usage.output_tokens == 8
+    assert stored.provider_receipts[0].receipt_id == "receipt-before-fault"
+    assert stored.invocations[0].provider_call_id == "resp_123"
+    report = inspect_run(root)
+    assert "unresolved_provider_acknowledgements" in report["risk_flags"]
