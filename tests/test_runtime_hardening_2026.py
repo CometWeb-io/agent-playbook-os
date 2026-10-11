@@ -649,3 +649,32 @@ async def test_streaming_budget_interrupts_before_next_chunk_and_requires_reconc
     assert calls == ["invoke"]
     with pytest.raises(ReconciliationRequired):
         await Runner(runtime).run(plan, root, resume=True)
+
+
+@pytest.mark.skipif(__import__("os").name != "posix", reason="POSIX flock required")
+def test_dead_filesystem_lease_has_only_one_new_owner(tmp_path):
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    from agent_playbook_os.errors import LeaseConflict
+    root = tmp_path / "run"
+    seed = RunStore(root)
+    seed.acquire_lease("dead-owner", ttl_seconds=0.01)
+    raw = json.loads(seed.lease_path.read_text(encoding="utf-8"))
+    raw["pid"] = 999999999
+    seed.lease_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    def contender(index):
+        store = RunStore(root)
+        try:
+            return store.acquire_lease(f"contender-{index}", ttl_seconds=1)
+        except LeaseConflict:
+            return None
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        results = list(pool.map(contender, range(10)))
+    winners = [token for token in results if token is not None]
+    assert len(winners) == 1
+    lease = RunStore(root).lease_status()
+    assert lease is not None and lease["live"] is True
+    assert lease["token"] == winners[0]
+    RunStore(root).release_lease(winners[0])
