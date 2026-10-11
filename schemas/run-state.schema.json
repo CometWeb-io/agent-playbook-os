@@ -199,6 +199,11 @@
           "default": null,
           "title": "Idempotency Key"
         },
+        "retry_eligible": {
+          "default": false,
+          "title": "Retry Eligible",
+          "type": "boolean"
+        },
         "status": {
           "$ref": "#/$defs/InvocationStatus",
           "default": "STARTED"
@@ -593,13 +598,13 @@
           "type": "integer"
         },
         "cost_usd": {
-          "default": 0.0,
+          "default": 0,
           "minimum": 0,
           "title": "Cost Usd",
           "type": "number"
         },
         "wall_time_seconds": {
-          "default": 0.0,
+          "default": 0,
           "minimum": 0,
           "title": "Wall Time Seconds",
           "type": "number"
