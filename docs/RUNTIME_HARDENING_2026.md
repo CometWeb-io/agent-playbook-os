@@ -476,3 +476,52 @@ older runs marked COMPLETED despite skipped or incomplete steps.
 It establishes safe no-repeat behavior for these tested reference
 scenarios, **not** exactly-once semantics for arbitrary external providers
 or multi-host storage.
+
+## Post-dispatch material exceptions and retry safety (11 October 2026)
+
+A generic exception from a provider adapter, network stack, local command
+or external action **does not prove the side effect was absent**. The
+previous reference engine could mark a material invocation `FAILED`
+and retry after such an exception (including with `on_fail=skip`),
+although a payment, write, email or API mutation may already have happened.
+
+Every ordinary exception from a dispatched `local`, `external` or
+`destructive` action is now classified as
+`SideEffectOutcomeUnknown` and recorded as `InvocationStatus.UNKNOWN`.
+This applies to top-level steps and to children in `parallel`,
+`foreach` and `while`. The run cannot silently ignore the error.
+The journal records only the exception class and a fixed reconciliation
+message rather than uncontrolled provider exception text.
+
+Two **explicit** exceptions to the no-repeat rule remain:
+
+1. An adapter may raise `NoSideEffectPerformed` only when it can
+   authoritatively establish that **no external effect happened** (e.g.
+   before dispatch or after a conclusive provider rejection). This permits
+   the ordinary retry and `on_fail` policy. A generic `ValueError`,
+   HTTP error or lost network connection does not establish this fact.
+2. `SideEffectOutcomeUnknown` may be retried only when **both** the
+   actual rendered idempotency key is nonempty and the injected adapter
+   confirms idempotent semantics through `supports_idempotency(step)`.
+   A configured but empty key is insufficient. The adapter must
+   guarantee that repeated dispatch using that key cannot duplicate
+   effects; the kernel cannot prove this remotely.
+
+Classified provider continuation, evidence conflicts, integrity errors
+and explicit no-dispatch kernel failures keep their intended semantics.
+Provider-native conformance and authoritative reconciliation are still
+required for production. Even a successful deduplicated retry may leave
+earlier `UNKNOWN` evidence in the ledger; do not represent that as
+independent proof of the first call's real-world outcome.
+
+The new adversarial regression suite exercises ordinary
+`ValueError`/`OSError`/`RuntimeError` after a simulated committed
+effect, with both stores and every supported nested layout. It also
+checks that sensitive exception detail is not persisted, correctly
+classified no-effect rejections are retryable, and provider-declared
+idempotency is paired with a nonempty *resolved* key.
+
+**Compatibility:** host adapters that previously relied on retries after
+an arbitrary material exception must now raise an explicit classified
+error or perform authoritative reconciliation. This is an intentional
+fail-closed safety tightening.
