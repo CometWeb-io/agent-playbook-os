@@ -26,7 +26,7 @@ class OpenAIResponsesRuntime(CallableRuntime):
         items = super().capabilities().list()
         items += [
             CapabilityDescriptor(id="provider:openai", kind="provider", description="Injected OpenAI Responses client."),
-            CapabilityDescriptor(id="agent-runtime:openai-responses", kind="agent-runtime", description="OpenAI Responses agent execution."),
+            CapabilityDescriptor(id="agent-runtime:openai-responses", kind="agent-runtime", description="OpenAI Responses agent execution.", metadata={"model": self.model}),
             CapabilityDescriptor(id="receipt:provider-call-id", kind="receipt", description="Persists provider response IDs as receipts."),
         ]
         return CapabilityRegistry(items)
