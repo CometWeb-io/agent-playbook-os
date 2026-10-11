@@ -90,6 +90,7 @@ class Runner:
         self.max_stream_event_bytes = max_stream_event_bytes
         self.max_stream_total_bytes = max_stream_total_bytes
         self._seq = 0
+        self._run_active = False
         self._active_approvals: set[str] = set()
         self._approval_actor = "human"
         self._cancellation = None
@@ -410,48 +411,62 @@ class Runner:
         fork_reason: str | None = None,
         run_metadata: dict[str, Any] | None = None,
     ):
-        if compiled_plan_integrity(plan) != plan.integrity_hash:
-            raise IntegrityError("compiled plan integrity check failed before execution")
-        self._verify_subplaybook_manifest(plan)
-        if self.enforce_capabilities:
-            report = negotiate_runtime(plan, self.runtime)
-            if not report.passed:
-                raise CapabilityNegotiationError(
-                    "runtime capability preflight failed: " + ", ".join(report.missing)
-                )
-        store = self.store_factory(run_dir)
-        self._active_approvals = set(approvals or set())
-        self._approval_actor = approval_actor
-        self._cancellation = cancellation_token or StoreCancellationToken(store)
-        self._lease_error = None
-        self._lease_failure_event = asyncio.Event()
-        token = store.acquire_lease(
-            owner=lease_owner or f"runner:{id(self)}",
-            ttl_seconds=self.lease_ttl_seconds,
-        )
-        heartbeat = asyncio.create_task(self._heartbeat_lease(store, token))
+        # Runner keeps per-run mutable state: event sequence, approvals,
+        # cancellation and lease heartbeat. Concurrent use of one instance
+        # would otherwise cross-contaminate independent runs.
+        if self._run_active:
+            raise StepExecutionError("Runner instance is already executing a run")
+        self._run_active = True
         try:
-            return await self._run_locked(
-                plan,
-                store,
-                approvals=self._active_approvals,
-                resume=resume,
-                replayed_from=replayed_from,
-                approval_actor=approval_actor,
-                allow_runtime_change=allow_runtime_change,
-                parent_run_id=parent_run_id,
-                root_run_id=root_run_id,
-                parent_lineage_depth=parent_lineage_depth,
-                fork_reason=fork_reason,
-                run_metadata=run_metadata,
+            # Fresh executions must start with event sequence 1 even after a
+            # previous run using this Runner instance. Resumes reconstruct
+            # their own sequence from the persisted event journal.
+            if not resume:
+                self._seq = 0
+            if compiled_plan_integrity(plan) != plan.integrity_hash:
+                raise IntegrityError("compiled plan integrity check failed before execution")
+            self._verify_subplaybook_manifest(plan)
+            if self.enforce_capabilities:
+                report = negotiate_runtime(plan, self.runtime)
+                if not report.passed:
+                    raise CapabilityNegotiationError(
+                        "runtime capability preflight failed: " + ", ".join(report.missing)
+                    )
+            store = self.store_factory(run_dir)
+            self._active_approvals = set(approvals or set())
+            self._approval_actor = approval_actor
+            self._cancellation = cancellation_token or StoreCancellationToken(store)
+            self._lease_error = None
+            self._lease_failure_event = asyncio.Event()
+            token = store.acquire_lease(
+                owner=lease_owner or f"runner:{id(self)}",
+                ttl_seconds=self.lease_ttl_seconds,
             )
-        finally:
-            heartbeat.cancel()
+            heartbeat = asyncio.create_task(self._heartbeat_lease(store, token))
             try:
-                await heartbeat
-            except BaseException:
-                pass
-            store.release_lease(token)
+                return await self._run_locked(
+                    plan,
+                    store,
+                    approvals=self._active_approvals,
+                    resume=resume,
+                    replayed_from=replayed_from,
+                    approval_actor=approval_actor,
+                    allow_runtime_change=allow_runtime_change,
+                    parent_run_id=parent_run_id,
+                    root_run_id=root_run_id,
+                    parent_lineage_depth=parent_lineage_depth,
+                    fork_reason=fork_reason,
+                    run_metadata=run_metadata,
+                )
+            finally:
+                heartbeat.cancel()
+                try:
+                    await heartbeat
+                except BaseException:
+                    pass
+                store.release_lease(token)
+        finally:
+            self._run_active = False
 
     async def _run_locked(
         self,
