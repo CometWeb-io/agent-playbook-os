@@ -1,5 +1,5 @@
 """HMAC grants bind authenticated approvals to a particular plan and work item."""
-from copy import deepcopy
+from functools import lru_cache
 
 import pytest
 
@@ -21,6 +21,7 @@ KEY_A = b"K" * 32
 KEY_B = b"B" * 32
 
 
+@lru_cache(maxsize=1)
 def compiled():
     return Compiler().compile(Playbook.model_validate({
         "apiVersion": "playbook.agent/v1alpha1",
@@ -176,7 +177,7 @@ async def test_real_worker_executes_only_when_grant_matches_all_scope_fields(tmp
     runtime = ReferenceRuntime()
 
     worker = DistributedWorker(
-        queue=queue, runtime=runtime, worker_id="worker",
+        queue=queue, runtime=runtime, worker_id="worker", queue_name="priority",
         approval_authorizer=signer(),
         runner_factory=lambda **kwargs: Runner(runtime, store_factory=RunStore, enforce_capabilities=True),
     )
@@ -205,7 +206,7 @@ async def test_forged_grant_causes_no_execution_and_no_run_state(tmp_path):
     runtime = ReferenceRuntime()
     worker = DistributedWorker(
         queue=queue, runtime=runtime,
-        approval_authorizer=signer(), worker_id="worker",
+        approval_authorizer=signer(), worker_id="worker", queue_name="priority",
         runner_factory=lambda **kwargs: Runner(runtime, store_factory=RunStore),
     )
     result = (await worker.run_once())[0]
