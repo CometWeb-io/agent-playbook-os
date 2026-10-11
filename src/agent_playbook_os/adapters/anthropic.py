@@ -4,6 +4,7 @@ from typing import Any
 
 from ..capabilities import CapabilityDescriptor, CapabilityRegistry
 from ..models import ProviderReceipt, RuntimeResult, UsageMetrics
+from ..errors import StepExecutionError
 from ..runtime import CallableRuntime
 from ._common import invoke_client, get_value, objective_text, jsonable_output
 
@@ -33,6 +34,11 @@ class AnthropicMessagesRuntime(CallableRuntime):
             max_tokens=self.max_tokens,
             messages=[{"role": "user", "content": objective_text(step, inputs)}],
         )
+        stop_reason = get_value(response, "stop_reason")
+        if stop_reason is not None and stop_reason != "end_turn":
+            raise StepExecutionError(
+                f"Anthropic response requires continuation or tool handling (stop_reason={stop_reason})"
+            )
         content = get_value(response, "content", []) or []
         pieces = []
         for item in content:
