@@ -709,6 +709,13 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
@@ -1226,6 +1233,13 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
@@ -1515,6 +1529,13 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
@@ -1771,6 +1792,13 @@ class Runner:
                     uncertain=step.side_effects in {"local", "external", "destructive"},
                 )
                 raise
+            except ProviderContinuationRequired as exc:
+                # A provider may have completed a remote operation even though
+                # its response still needs a tool result or continuation.
+                # Material side effects MUST remain UNKNOWN and reconciled.
+                material = step.side_effects in {"local", "external", "destructive"}
+                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
+                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
                 last = exc
                 self._finish_invocation(invocation, state, store, error=exc)
