@@ -920,6 +920,17 @@ class Runner:
                 raise StepExecutionError("subplaybook is waiting without an approval id")
             raise ApprovalRequired(prefix + "/" + child_state.pending_approvals[0])
         if child_state.status != RunStatus.COMPLETED:
+            uncertain = [
+                inv for inv in child_state.invocations
+                if inv.status in {InvocationStatus.UNKNOWN, InvocationStatus.STARTED}
+                and inv.side_effects in {"local", "external", "destructive"}
+            ]
+            if uncertain:
+                # The parent may advertise on_fail=skip or continue, but it
+                # cannot convert an uncertain child side effect into success.
+                raise ReconciliationRequired(
+                    f"subplaybook {prefix} has {len(uncertain)} unresolved material invocations"
+                )
             raise StepExecutionError(f"subplaybook {prefix} ended as {child_state.status.value}")
         state.usage.add(child_state.usage)
         budget.check(state)
