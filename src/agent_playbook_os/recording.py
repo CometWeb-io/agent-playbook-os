@@ -138,6 +138,9 @@ class RecordingRuntime:
                         previous_hash = previous.get("record_hash")
                         if not isinstance(previous_hash, str) or not previous_hash.startswith("sha256:"):
                             raise IntegrityError("cannot append to legacy or unverified cassette")
+                        prior_body = {key: value for key, value in previous.items() if key != "record_hash"}
+                        if canonical_hash(prior_body) != previous_hash:
+                            raise IntegrityError("existing cassette terminal record has invalid hash")
                     else:
                         previous_hash = None
                     record = {**record, "prev_hash": previous_hash}
