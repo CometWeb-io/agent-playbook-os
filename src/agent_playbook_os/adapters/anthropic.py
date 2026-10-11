@@ -24,7 +24,7 @@ class AnthropicMessagesRuntime(CallableRuntime):
         items = super().capabilities().list()
         items += [
             CapabilityDescriptor(id="provider:anthropic", kind="provider", description="Injected Anthropic Messages client."),
-            CapabilityDescriptor(id="agent-runtime:anthropic-messages", kind="agent-runtime", description="Anthropic Messages agent execution."),
+            CapabilityDescriptor(id="agent-runtime:anthropic-messages", kind="agent-runtime", description="Anthropic Messages agent execution.", metadata={"model": self.model, "max_tokens": self.max_tokens}),
             CapabilityDescriptor(id="receipt:provider-call-id", kind="receipt", description="Persists provider message IDs as receipts."),
         ]
         return CapabilityRegistry(items)

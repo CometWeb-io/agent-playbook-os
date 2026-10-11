@@ -37,3 +37,8 @@ python scripts/release_check.py
 ```
 
 Do not claim that passing structural tests proves factual correctness of external model, tool, evidence, or skill outputs.
+
+26. bound each provider stream's event count and encoded payload size; require a single terminal result;
+27. never treat a rejected/incomplete stream with material side effects as safe to retry;
+28. fingerprint model configuration so resumed executions cannot silently switch models;
+29. reject nonfinite cost/usage/state values before durable hashing and budgeting.

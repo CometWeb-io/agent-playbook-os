@@ -77,5 +77,13 @@ class ProviderContinuationRequired(StepExecutionError):
     """
 
 
+class StreamProtocolError(ProviderContinuationRequired):
+    """Provider stream exceeded host safety limits or broke its terminal contract.
+
+    A material invocation interrupted by this error has an unknown downstream
+    outcome and must be reconciled before any retry.
+    """
+
+
 class ProviderRefusal(StepExecutionError):
     """The model explicitly refused the requested operation."""

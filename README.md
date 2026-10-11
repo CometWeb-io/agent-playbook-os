@@ -595,3 +595,18 @@ must be recompiled before execution.
 
 Secure file-backed secrets currently require POSIX no-follow file handles.
 See [runtime hardening](docs/RUNTIME_HARDENING_2026.md) for limits and tests.
+
+### Bounded provider streams and model identity
+
+Streaming host adapters must deliver one terminal `RuntimeStreamEvent(type="result")`.
+The Runner enforces finite stream count/size budgets, closes async iterators
+when finished or interrupted, and records `UNKNOWN` for interrupted material
+effects. Configure `max_stream_events`, `max_stream_event_bytes` and
+`max_stream_total_bytes` on `Runner(...)` when justified by expected output
+sizes. These controls limit **locally received** data; they cannot retroactively
+cancel a provider request already accepted by a remote service.
+
+The built-in OpenAI/Anthropic injected-client adapters fingerprint model
+configuration, allowing resume to detect a changed model or `max_tokens`.
+See [runtime hardening](docs/RUNTIME_HARDENING_2026.md) for precise
+limits, residual risks and the corresponding regression tests.

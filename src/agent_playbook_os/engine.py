@@ -12,7 +12,7 @@ import jsonschema
 from .budgets import BudgetController
 from .compiler import Compiler
 from .errors import (
-    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
+    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, StreamProtocolError, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
 )
 from .expressions import render, safe_eval
 from .integrity import compiled_plan_integrity
@@ -58,6 +58,9 @@ class Runner:
         lease_ttl_seconds: float = 30.0,
         lease_heartbeat_seconds: float | None = None,
         enforce_capabilities: bool = False,
+        max_stream_events: int = 10_000,
+        max_stream_event_bytes: int = 2_000_000,
+        max_stream_total_bytes: int = 16_000_000,
     ):
         self.runtime = runtime
         self.compiler = compiler or Compiler()
@@ -74,6 +77,18 @@ class Runner:
         if self.lease_ttl_seconds <= 0 or self.lease_heartbeat_seconds <= 0:
             raise ValueError("lease TTL and heartbeat interval must be positive")
         self.enforce_capabilities = enforce_capabilities
+        for name, value in (
+            ("max_stream_events", max_stream_events),
+            ("max_stream_event_bytes", max_stream_event_bytes),
+            ("max_stream_total_bytes", max_stream_total_bytes),
+        ):
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        if max_stream_event_bytes > max_stream_total_bytes:
+            raise ValueError("max_stream_event_bytes cannot exceed max_stream_total_bytes")
+        self.max_stream_events = max_stream_events
+        self.max_stream_event_bytes = max_stream_event_bytes
+        self.max_stream_total_bytes = max_stream_total_bytes
         self._seq = 0
         self._active_approvals: set[str] = set()
         self._approval_actor = "human"
@@ -789,46 +804,87 @@ class Runner:
         if streaming:
             aggregate = RuntimeResult()
             saw_result = False
-            async for item in raw:
-                event = item if isinstance(item, RuntimeStreamEvent) else RuntimeStreamEvent.model_validate(item)
-                # Usage/receipts have already happened in the real world. Commit
-                # them before reading another stream chunk: late failures must
-                # not erase real token charges or provider receipts.
-                if event.type == "usage" and event.usage is not None:
-                    aggregate.usage.add(event.usage)
-                    state.usage.add(event.usage)
-                    step_state.usage.add(event.usage)
-                elif event.type == "artifact" and event.artifact is not None:
-                    aggregate.artifacts.append(event.artifact)
-                    if not any(x.id == event.artifact.id for x in state.artifacts):
-                        state.artifacts.append(event.artifact)
-                elif event.type == "evidence" and event.evidence_ref is not None:
-                    aggregate.evidence_refs.append(event.evidence_ref)
-                    if not any(x.id == event.evidence_ref.id for x in state.evidence_refs):
-                        state.evidence_refs.append(event.evidence_ref)
-                elif event.type == "receipt" and event.receipt is not None:
-                    aggregate.provider_receipts.append(event.receipt)
-                    receipt = event.receipt.model_copy(update={"metadata": redact(event.receipt.metadata)})
-                    if receipt.idempotency_key is None:
-                        receipt.idempotency_key = step_state.idempotency_key
-                    if not any(x.receipt_id == receipt.receipt_id for x in state.provider_receipts):
-                        state.provider_receipts.append(receipt)
-                    if receipt.receipt_id not in step_state.provider_receipt_ids:
-                        step_state.provider_receipt_ids.append(receipt.receipt_id)
-                    if invocation is not None:
-                        if receipt.receipt_id not in invocation.provider_receipt_ids:
-                            invocation.provider_receipt_ids.append(receipt.receipt_id)
-                        invocation.provider = invocation.provider or receipt.provider
-                        invocation.provider_call_id = invocation.provider_call_id or receipt.call_id
-                elif event.type == "result":
-                    aggregate.value = event.value
-                    saw_result = True
-                # The event and snapshot are atomically committed on SQLite.
-                self._emit(store, state, f"runtime.stream.{event.type}", step_id, metadata=event.metadata)
-                if budget is not None and event.type == "usage":
-                    budget.check(state)
+            stream_events = 0
+            stream_bytes = 0
+            try:
+                async for item in raw:
+                    # A result is terminal: accepting any later event can conceal
+                    # ambiguous finality and an attacker-controlled endless stream.
+                    if saw_result:
+                        raise StreamProtocolError(f"streaming runtime for {step_id} emitted data after terminal result")
+                    stream_events += 1
+                    if stream_events > self.max_stream_events:
+                        raise StreamProtocolError(
+                            f"streaming runtime for {step_id} exceeded max_stream_events={self.max_stream_events}"
+                        )
+                    try:
+                        event = item if isinstance(item, RuntimeStreamEvent) else RuntimeStreamEvent.model_validate(item)
+                        encoded = json.dumps(
+                            event.model_dump(mode="json"), sort_keys=True,
+                            separators=(",", ":"), ensure_ascii=False,
+                            allow_nan=False,
+                        ).encode("utf-8")
+                    except Exception as exc:
+                        raise StreamProtocolError(
+                            f"streaming runtime for {step_id} emitted an invalid event"
+                        ) from exc
+                    if len(encoded) > self.max_stream_event_bytes:
+                        raise StreamProtocolError(
+                            f"streaming runtime for {step_id} exceeded max_stream_event_bytes={self.max_stream_event_bytes}"
+                        )
+                    stream_bytes += len(encoded)
+                    if stream_bytes > self.max_stream_total_bytes:
+                        raise StreamProtocolError(
+                            f"streaming runtime for {step_id} exceeded max_stream_total_bytes={self.max_stream_total_bytes}"
+                        )
+                    # Usage/receipts have already happened in the real world. Commit
+                    # them before reading another stream chunk: late failures must
+                    # not erase real token charges or provider receipts.
+                    if event.type == "usage" and event.usage is not None:
+                        aggregate.usage.add(event.usage)
+                        state.usage.add(event.usage)
+                        step_state.usage.add(event.usage)
+                    elif event.type == "artifact" and event.artifact is not None:
+                        aggregate.artifacts.append(event.artifact)
+                        if not any(x.id == event.artifact.id for x in state.artifacts):
+                            state.artifacts.append(event.artifact)
+                    elif event.type == "evidence" and event.evidence_ref is not None:
+                        aggregate.evidence_refs.append(event.evidence_ref)
+                        if not any(x.id == event.evidence_ref.id for x in state.evidence_refs):
+                            state.evidence_refs.append(event.evidence_ref)
+                    elif event.type == "receipt" and event.receipt is not None:
+                        aggregate.provider_receipts.append(event.receipt)
+                        receipt = event.receipt.model_copy(update={"metadata": redact(event.receipt.metadata)})
+                        if receipt.idempotency_key is None:
+                            receipt.idempotency_key = step_state.idempotency_key
+                        if not any(x.receipt_id == receipt.receipt_id for x in state.provider_receipts):
+                            state.provider_receipts.append(receipt)
+                        if receipt.receipt_id not in step_state.provider_receipt_ids:
+                            step_state.provider_receipt_ids.append(receipt.receipt_id)
+                        if invocation is not None:
+                            if receipt.receipt_id not in invocation.provider_receipt_ids:
+                                invocation.provider_receipt_ids.append(receipt.receipt_id)
+                            invocation.provider = invocation.provider or receipt.provider
+                            invocation.provider_call_id = invocation.provider_call_id or receipt.call_id
+                    elif event.type == "result":
+                        aggregate.value = event.value
+                        saw_result = True
+                    # The event and snapshot are atomically committed on SQLite.
+                    self._emit(store, state, f"runtime.stream.{event.type}", step_id, metadata=event.metadata)
+                    if budget is not None and event.type == "usage":
+                        budget.check(state)
+            finally:
+                # Async generators can retain sockets, locks and child work
+                # after a rejected event, timeout or cancellation. Close them
+                # deterministically without blocking the control plane forever.
+                closer = getattr(raw, "aclose", None)
+                if callable(closer):
+                    try:
+                        await asyncio.wait_for(closer(), timeout=1.0)
+                    except Exception:
+                        pass
             if not saw_result:
-                raise StepExecutionError(f"streaming runtime for {step_id} ended without a result event")
+                raise StreamProtocolError(f"streaming runtime for {step_id} ended without a result event")
             raw = aggregate
         return self._consume_runtime_result(
             raw, state, step_state, store, step_id, invocation, usage_already_accounted=streaming
@@ -1010,6 +1066,9 @@ class Runner:
                 lease_ttl_seconds=self.lease_ttl_seconds,
                 lease_heartbeat_seconds=self.lease_heartbeat_seconds,
                 enforce_capabilities=self.enforce_capabilities,
+                max_stream_events=self.max_stream_events,
+                max_stream_event_bytes=self.max_stream_event_bytes,
+                max_stream_total_bytes=self.max_stream_total_bytes,
             )
             child_state = await child_runner.run(
                 child_plan, child_dir, resume=resume, approvals=child_approvals,
