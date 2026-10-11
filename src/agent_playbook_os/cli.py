@@ -834,6 +834,14 @@ def _artifact_verifier_from_args(args):
     return registry, TenantScope(tenant_id=tenant, namespace=namespace)
 
 
+def _public_work_item(item):
+    """Do not echo queue-carried bearer approval grants to CLI output."""
+    data = item.model_dump(mode="json")
+    if isinstance(data.get("metadata"), dict) and "approval_grant" in data["metadata"]:
+        data["metadata"]["approval_grant"] = "<redacted:approval-grant>"
+    return data
+
+
 def cmd_queue_enqueue(args):
     if args.approve:
         raise SystemExit(
@@ -879,14 +887,14 @@ def cmd_queue_enqueue(args):
         approval_actor="worker", max_attempts=args.max_attempts, metadata=metadata,
     )
     item = SQLiteWorkQueue(args.queue_db).enqueue(submission)
-    print(item.model_dump_json(indent=2))
+    print(json.dumps(_public_work_item(item), indent=2))
 
 
 def cmd_queue_list(args):
     rows = SQLiteWorkQueue(args.queue_db).list(
         queue_name=args.queue_name, tenant_id=args.tenant, namespace=args.namespace, status=args.status, limit=args.limit
     )
-    print(json.dumps([x.model_dump(mode="json") for x in rows], indent=2))
+    print(json.dumps([_public_work_item(x) for x in rows], indent=2))
 
 
 def cmd_queue_stats(args):
@@ -894,7 +902,9 @@ def cmd_queue_stats(args):
 
 
 def cmd_queue_cancel(args):
-    print(SQLiteWorkQueue(args.queue_db).request_cancel(args.work_id).model_dump_json(indent=2))
+    print(json.dumps(_public_work_item(
+        SQLiteWorkQueue(args.queue_db).request_cancel(args.work_id)
+    ), indent=2))
 
 
 def cmd_queue_conformance(args):
@@ -966,7 +976,7 @@ async def cmd_worker_once_async(args):
     )
     results = await worker.run_once()
     payload = [{
-        "work": x.work.model_dump(mode="json"), "state_status": x.state_status, "error": x.error
+        "work": _public_work_item(x.work), "state_status": x.state_status, "error": x.error
     } for x in results]
     print(json.dumps(payload, indent=2))
     if any(x.work.status in {"DEAD", "FAILED"} or x.state_status == "FAILED" for x in results):
