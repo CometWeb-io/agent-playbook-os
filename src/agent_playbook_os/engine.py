@@ -345,6 +345,27 @@ class Runner:
         return None
 
     def _reconcile_uncertain_invocations_for_resume(self, state: RunState, plan, store):
+        # A provider invocation can finish successfully while the Runner dies
+        # before writing step.completed. SUCCEEDED is not an atomic checkpoint
+        # of the step's output/schema/budget processing. If the step was not
+        # durably completed, replaying its material action risks duplication.
+        orphaned_success = []
+        for inv in state.invocations:
+            if (
+                inv.status == InvocationStatus.SUCCEEDED
+                and inv.side_effects in {"local", "external", "destructive"}
+            ):
+                ss = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
+                if ss is None or ss.status != StepStatus.COMPLETED:
+                    orphaned_success.append(inv)
+        if orphaned_success:
+            details = ", ".join(
+                f"{inv.invocation_id} ({inv.step_id})" for inv in orphaned_success
+            )
+            raise ReconciliationRequired(
+                "material invocation succeeded without a completed step checkpoint: "
+                + details + "; verify its result and reconcile before resume"
+            )
         uncertain = [
             x for x in state.invocations
             if x.status == InvocationStatus.UNKNOWN or (
@@ -529,6 +550,12 @@ class Runner:
             elif state.runtime_capabilities_hash is None:
                 state.runtime_capabilities_hash = current_caps
             self._reconcile_uncertain_invocations_for_resume(state, plan, store)
+            # A manually reconciled successful invocation must not bypass the
+            # output-schema contract when its step is skipped on resume.
+            completed_specs = {x.spec.id: x.spec for x in plan.steps}
+            for key, step_state in state.steps.items():
+                if step_state.status == StepStatus.COMPLETED:
+                    self._validate_output_schema(completed_specs[key], step_state.output, plan)
             self._emit(store, state, "run.resumed", approvals=sorted(approvals))
         else:
             if store.has_any_run_data():
