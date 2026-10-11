@@ -870,6 +870,15 @@ def cmd_queue_enqueue(args):
     from .tenancy import tenant_path
     scope = TenantScope(tenant_id=args.tenant, namespace=args.namespace)
     run_dir = tenant_path(Path(args.run_root).resolve(), scope, run_id)
+    if approval_grant is not None:
+        for attr, expected in {
+            "plan_path": str(plan_path),
+            "run_dir": str(run_dir),
+            "store_backend": args.store,
+            "max_attempts": args.max_attempts,
+        }.items():
+            if getattr(approval_grant, attr) != expected:
+                raise SystemExit(f"approval grant scope differs from submission: {attr}")
     metadata = {}
     if args.metadata:
         metadata = json.loads(args.metadata)
