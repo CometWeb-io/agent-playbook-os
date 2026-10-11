@@ -249,3 +249,75 @@ def test_cli_explicit_json_null_is_not_missing_output(tmp_path, capsys):
     cmd_reconcile(SimpleNamespace(**kwargs, output="null"))
     capsys.readouterr()
     assert store.load_state().steps["charge"].status == StepStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("layout", ["top", "parallel", "foreach", "while"])
+@pytest.mark.parametrize("on_fail", ["skip", "continue"])
+async def test_material_invalid_result_cannot_be_suppressed_by_on_fail(
+    tmp_path, layout, on_fail
+):
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps({"type": "string"}), encoding="utf-8")
+    source = tmp_path / "root.yaml"
+    source.write_text("# source", encoding="utf-8")
+    write = {
+        "id": "charge", "type": "action", "action": "charge",
+        "side_effects": "external", "on_fail": on_fail,
+        "output_schema": "schema.json", "with": {"value": 7},
+    }
+    wrapped = {
+        "top": write,
+        "parallel": {"id": "container", "type": "parallel", "branches": {"a": [write]}},
+        "foreach": {"id": "container", "type": "foreach", "items": [1], "steps": [write]},
+        "while": {
+            "id": "container", "type": "while",
+            "condition": "loop.iteration < 1",
+            "max_iterations": 2, "do": [write],
+        },
+    }[layout]
+    pb = Playbook.model_validate({
+        "apiVersion": "playbook.agent/v1alpha1", "kind": "Playbook",
+        "metadata": {"id": "no-skip-after-effect", "version": "0.1.0",
+                     "description": "validation fail closed"},
+        "spec": {"policy": {"require_approval_for": []}, "steps": [wrapped]},
+    })
+    compiled = Compiler().compile(pb, source_path=str(source))
+    calls = []
+
+    async def charge(step, inputs, context):
+        calls.append("external-effect")
+        return 7
+
+    runtime = CallableRuntime(actions={"charge": charge})
+    root = tmp_path / "run"
+    state = await Runner(runtime).run(compiled, root)
+    assert state.status == RunStatus.FAILED
+    assert state.invocations[0].status == InvocationStatus.SUCCEEDED
+    assert calls == ["external-effect"]
+    with pytest.raises(ReconciliationRequired):
+        await Runner(runtime).run(compiled, root, resume=True)
+    assert calls == ["external-effect"]
+
+
+@pytest.mark.asyncio
+async def test_pure_invalid_result_can_still_follow_explicit_skip_policy(tmp_path):
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps({"type": "string"}), encoding="utf-8")
+    source = tmp_path / "source.yaml"
+    source.write_text("# source", encoding="utf-8")
+    pb = Playbook.model_validate({
+        "apiVersion": "playbook.agent/v1alpha1", "kind": "Playbook",
+        "metadata": {"id": "pure-skippable", "version": "0.1.0",
+                     "description": "nonmaterial schema failure"},
+        "spec": {"steps": [{
+            "id": "compute", "type": "action", "action": "set",
+            "side_effects": "none", "on_fail": "skip",
+            "with": {"value": 7}, "output_schema": "schema.json",
+        }]},
+    })
+    state = await Runner(CallableRuntime(actions={"set": lambda s, i, c: 7})).run(
+        Compiler().compile(pb, source_path=str(source)), tmp_path / "pure",
+    )
+    assert state.status == RunStatus.COMPLETED
+    assert state.steps["compute"].status == StepStatus.SKIPPED
