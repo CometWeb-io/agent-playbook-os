@@ -669,3 +669,11 @@ transaction; on the filesystem backend the writes remain independent.
 Conflicting reuse of a provider receipt ID is rejected, and returned
 CLI receipt metadata is redacted. See the
 [hardening guide](docs/RUNTIME_HARDENING_2026.md).
+
+### Immutable runtime evidence identities
+
+Runtime results and streaming receipts, artifacts and evidence references
+can no longer silently reuse an existing ID with different content.
+Contradictory evidence fails closed; an affected material invocation is
+marked `UNKNOWN` until independently reconciled. Exact duplicate
+records remain idempotent. See [runtime hardening](docs/RUNTIME_HARDENING_2026.md).
