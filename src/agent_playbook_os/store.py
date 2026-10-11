@@ -33,6 +33,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Preserve the distinction between a legitimate JSON null result and no
+# operator-supplied evidence. A successful external invocation may return null.
+_OUTPUT_UNSET = object()
+
+
 class RunStore:
     backend_id = "filesystem"
 
@@ -447,7 +452,7 @@ class RunStore:
         *,
         outcome: str,
         actor: str = "human",
-        output: Any = None,
+        output: Any = _OUTPUT_UNSET,
         note: str | None = None,
     ) -> RunState:
         if outcome not in {"not-executed", "succeeded"}:
@@ -483,7 +488,7 @@ class RunStore:
                         "SUCCEEDED invocation has no result digest to verify"
                     )
             if outcome == "succeeded":
-                if output is None:
+                if output is _OUTPUT_UNSET:
                     raise ReconciliationRequired("succeeded reconciliation requires output")
                 from .secret_resolver import redact_secret_values
                 output = redact(redact_secret_values(output))
