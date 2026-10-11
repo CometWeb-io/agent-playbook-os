@@ -219,19 +219,14 @@ class RunStore:
         self.cancel_path.unlink(missing_ok=True)
 
     def _lease_is_live(self, payload: dict[str, Any]) -> bool:
-        heartbeat = payload.get("heartbeat_at") or payload.get("acquired_at")
-        ttl = payload.get("ttl_seconds")
-        if isinstance(heartbeat, str) and isinstance(ttl, (int, float)) and ttl > 0:
-            try:
-                ts = datetime.fromisoformat(heartbeat.replace("Z", "+00:00"))
-                if datetime.now(timezone.utc) - ts > timedelta(seconds=float(ttl)):
-                    return False
-            except Exception:
-                return True
+        # A TTL is not proof of process death: event-loop scheduling pauses can
+        # exceed short heartbeat intervals even while a material call is live.
+        # The reference filesystem/SQLite stores are local-process coordinators,
+        # not cross-host fencing systems. Prefer a blocked run over duplicates.
         if payload.get("host") != socket.gethostname():
-            return True  # Remote/unknown host with a fresh heartbeat: fail closed.
+            return True  # Unknown remote process: only explicit break is safe.
         pid = payload.get("pid")
-        if not isinstance(pid, int) or pid <= 0:
+        if type(pid) is not int or pid <= 0:
             return True
         try:
             os.kill(pid, 0)
