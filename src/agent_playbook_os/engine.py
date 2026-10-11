@@ -835,7 +835,7 @@ class Runner:
             else:
                 usage = getattr(state.usage, field.removeprefix("max_"))
                 available = ceiling - usage
-                if available <= 0:
+                if available < 0 or (field == "max_total_attempts" and available == 0):
                     raise BudgetExceeded(f"no {field} budget remains for subplaybook")
                 remaining[field] = available
         host_policy = compose_policies(plan.policy, PolicySpec(
@@ -850,7 +850,6 @@ class Runner:
             strict_skill_resolution=self.compiler.strict_skill_resolution,
             host_policy=host_policy,
         )
-        child_plan = compiler.compile(child_pb, params, source_path=str(child_path))
         child_dir = store.run_dir.joinpath("subruns", *parts)
         child_store = self.store_factory(child_dir)
         resume = child_store.has_state()
@@ -862,9 +861,15 @@ class Runner:
                 if not ok:
                     raise IntegrityError(f"invalid child run: {reason}")
             recorded_plan = child_store.load_plan()
-            if recorded_plan.semantic_hash != child_plan.semantic_hash:
-                raise IntegrityError("subplaybook changed since its first execution")
+            if recorded_plan.playbook_hash != canonical_hash(child_pb.model_dump(by_alias=True, mode="json")):
+                raise IntegrityError("subplaybook source changed since its first execution")
+            # Remaining budget is dynamic. Resume the exact persisted plan
+            # rather than recompiling it with a new remaining-budget hash.
+            from .policy import assert_plan_satisfies_host_policy
+            assert_plan_satisfies_host_policy(recorded_plan, plan.policy)
             child_plan = recorded_plan
+        else:
+            child_plan = compiler.compile(child_pb, params, source_path=str(child_path))
         prefix = "/".join(parts)
         child_approvals = {
             value[len(prefix) + 1:] for value in self._active_approvals
