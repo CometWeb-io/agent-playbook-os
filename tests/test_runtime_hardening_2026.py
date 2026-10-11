@@ -507,3 +507,33 @@ def test_tenant_secret_file_limits_and_nonregular_files(tmp_path):
     (location / "DIRECTORY").mkdir()
     with pytest.raises(Exception):
         resolver.resolve("tenant-secret://DIRECTORY")
+
+
+def test_sqlite_workers_compete_without_duplicate_claims(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    q = SQLiteWorkQueue(tmp_path / "competing.sqlite3")
+    ids = {f"job-{i}" for i in range(48)}
+    for i in range(48):
+        q.enqueue(WorkSubmission(
+            work_id=f"job-{i}", run_id=f"run-{i}",
+            plan_path="/tmp/plan", run_dir=f"/tmp/run-{i}",
+            required_capabilities=["action:set"],
+        ))
+
+    def consume(worker):
+        claimed = []
+        while True:
+            item = q.claim(worker_id=f"worker-{worker}", capabilities={"action:set"},
+                           visibility_timeout_seconds=15)
+            if item is None:
+                return claimed
+            claimed.append(item.work_id)
+            q.ack(item.work_id, item.claim_token, item.fence, {"status": "COMPLETED"})
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        batches = list(pool.map(consume, range(6)))
+    flat = [item for batch in batches for item in batch]
+    assert len(flat) == len(ids)
+    assert set(flat) == ids
+    assert len(flat) == len(set(flat))
+    assert q.stats().by_status["COMPLETED"] == len(ids)
