@@ -309,6 +309,9 @@ class CompiledPlan(StrictModel):
     steps: list[CompiledStep]
     outputs: dict[str, Any]
     skill_lock: dict[str, SkillLockEntry] = Field(default_factory=dict)
+    # Relative-to-source-root child paths -> canonical parsed playbook SHA-256.
+    # Empty on legacy compiled plans, which must recompile before child dispatch.
+    subplaybook_locks: dict[str, str] = Field(default_factory=dict)
     source_path: str | None = None
 
 
