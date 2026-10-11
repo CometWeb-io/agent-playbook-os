@@ -47,6 +47,19 @@ def test_expression_still_reads_nested_plain_data():
     assert safe_eval("inputs.data[0].ready", {"inputs": {"data": [{"ready": True}]}}) is True
 
 
+@pytest.mark.asyncio
+async def test_host_side_effect_classification_cannot_be_downgraded(tmp_path):
+    plan = Compiler().compile(pb([
+        {"id": "cmd", "type": "action", "action": "command",
+         "side_effects": "none", "with": {"argv": ["echo", "test"]}},
+    ]))
+    result = await Runner(
+        ReferenceRuntime(allow_commands=True, allowed_commands={"echo"}),
+    ).run(plan, tmp_path / "run")
+    assert result.status == RunStatus.FAILED
+    assert "cannot downgrade side effects" in result.steps["cmd"].error
+
+
 def test_parallel_branch_path_must_be_safe():
     with pytest.raises(ValueError, match="unsafe parallel branch"):
         pb([{"id": "p", "type": "parallel", "branches": {"../escape": [
