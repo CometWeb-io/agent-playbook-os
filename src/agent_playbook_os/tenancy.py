@@ -125,7 +125,9 @@ class TenantFileSecretResolver:
             finally:
                 os.close(secret_fd)
         except OSError as exc:
-            raise SecretResolutionError(f"secure tenant secret lookup failed for {name!r}") from exc
+            raise SecretResolutionError(
+                f"secure tenant secret lookup failed (symlink or inaccessible path) for {name!r}"
+            ) from exc
         finally:
             if fd is not None:
                 os.close(fd)
