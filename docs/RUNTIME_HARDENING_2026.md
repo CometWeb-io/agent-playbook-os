@@ -378,3 +378,33 @@ Limits: this only detects values redacted by the built-in markers/rules.
 An unmarked plaintext secret in an ordinary field may still be recorded
 by custom adapters. Hosts must enforce secret classification, key custody,
 output-data minimization and log/retention rules.
+
+## Operator reconciliation, leases and evidence consistency (11 October 2026)
+
+Manual `receipt attach` and `reconcile` operations now **acquire a
+separate per-run lease before reading state**. They refuse to mutate a run
+already owned by an active Runner or another operator. While holding that
+lease they verify the event hash chain, compiled plan integrity and state
+snapshot integrity, preventing stale or corrupted evidence from being
+silently reconciled.
+
+For SQLite stores, operator reconciliation and receipt attachment use
+`append_event_with_state`: one database transaction commits both the
+new state snapshot and matching audit event. Fault-injection tests abort
+an event insert and assert that neither the state nor event journal
+changed. Filesystem state/event files remain separate durable writes,
+protected by the lease but **not transactionally atomic**; after a crash,
+recovery must verify both before resuming material operations.
+
+Receipts with the same `receipt_id` cannot silently claim a different
+provider call or payload. Failed collision checks do not append audit
+events. Reconciliation notes, outputs and CLI-returned receipt metadata
+are redacted before durable persistence or display; these controls do
+not authenticate the human operator or validate the downstream outcome.
+
+Important: `reconcile --outcome succeeded` is a manual assertion. It
+requires an operator with independent proof from the downstream provider.
+The reference kernel checks integrity and mutual exclusion, but does
+not independently prove that an external payment, email or other
+material operation succeeded. Production operator endpoints must have
+host-owned IAM, separation of duties and audited approval records.

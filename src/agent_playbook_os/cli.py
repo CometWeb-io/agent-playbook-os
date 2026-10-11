@@ -288,8 +288,12 @@ def cmd_receipt_attach(args):
     state = open_run_store(args.run_dir).attach_provider_receipt(
         args.invocation_id, receipt, actor=args.actor
     )
+    stored_receipt = next(
+        value for value in state.provider_receipts
+        if value.receipt_id == receipt.receipt_id
+    )
     print(json.dumps({
-        "receipt": receipt.model_dump(mode="json"),
+        "receipt": stored_receipt.model_dump(mode="json"),
         "run_id": state.run_id,
     }, indent=2))
 
