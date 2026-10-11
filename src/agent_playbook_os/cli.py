@@ -45,6 +45,7 @@ from .distributed import (
 )
 from .tenancy import TenantFileSecretResolver, TenantPolicyResolver
 from .artifacts import ArtifactVerifierRegistry, FilesystemArtifactStore
+from .approval_grants import HMACApprovalAuthorizer, SignedApprovalGrant, MAX_GRANT_BYTES
 
 
 def parse_inputs(items):
@@ -833,6 +834,14 @@ def _artifact_verifier_from_args(args):
     return registry, TenantScope(tenant_id=tenant, namespace=namespace)
 
 
+def _public_work_item(item):
+    """Do not echo queue-carried bearer approval grants to CLI output."""
+    data = item.model_dump(mode="json")
+    if isinstance(data.get("metadata"), dict) and "approval_grant" in data["metadata"]:
+        data["metadata"]["approval_grant"] = "<redacted:approval-grant>"
+    return data
+
+
 def cmd_queue_enqueue(args):
     if args.approve:
         raise SystemExit(
@@ -841,10 +850,38 @@ def cmd_queue_enqueue(args):
         )
     plan_path = Path(args.plan).resolve()
     plan = CompiledPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+    approval_grant = None
+    if args.approval_grant_file:
+        if not args.work_id or not args.run_id:
+            raise SystemExit("signed approval grants require explicit --work-id and --run-id")
+        try:
+            grant_path = Path(args.approval_grant_file)
+            if grant_path.stat().st_size > MAX_GRANT_BYTES:
+                raise ValueError("signed approval grant file exceeds 16 KiB")
+            raw_grant = json.loads(grant_path.read_text(encoding="utf-8"))
+            approval_grant = SignedApprovalGrant.model_validate(raw_grant)
+        except Exception as exc:
+            raise SystemExit("invalid signed approval grant file") from exc
+        for attr, expected in {
+            "work_id": args.work_id, "run_id": args.run_id,
+            "tenant_id": args.tenant, "namespace": args.namespace,
+            "queue_name": args.queue_name, "plan_integrity_hash": plan.integrity_hash,
+        }.items():
+            if getattr(approval_grant, attr) != expected:
+                raise SystemExit(f"approval grant scope differs from submission: {attr}")
     run_id = args.run_id or str(uuid4())
     from .tenancy import tenant_path
     scope = TenantScope(tenant_id=args.tenant, namespace=args.namespace)
     run_dir = tenant_path(Path(args.run_root).resolve(), scope, run_id)
+    if approval_grant is not None:
+        for attr, expected in {
+            "plan_path": str(plan_path),
+            "run_dir": str(run_dir),
+            "store_backend": args.store,
+            "max_attempts": args.max_attempts,
+        }.items():
+            if getattr(approval_grant, attr) != expected:
+                raise SystemExit(f"approval grant scope differs from submission: {attr}")
     metadata = {}
     if args.metadata:
         metadata = json.loads(args.metadata)
@@ -852,21 +889,24 @@ def cmd_queue_enqueue(args):
             raise SystemExit("--metadata must decode to an object")
     # The plan digest is authoritative, not provided by arbitrary --metadata.
     metadata["submitted_plan_hash"] = plan.integrity_hash
+    if approval_grant is not None:
+        metadata["approval_grant"] = approval_grant.model_dump(mode="json")
     submission = WorkSubmission(
         work_id=args.work_id or str(uuid4()), queue_name=args.queue_name, tenant_id=args.tenant, namespace=args.namespace,
         run_id=run_id, plan_path=str(plan_path), run_dir=str(run_dir), store_backend=args.store,
         required_capabilities=sorted(set(required_capabilities_for_plan(plan)) | set(args.require_capability or [])),
-        approvals=list(args.approve or []), approval_actor=args.approval_actor, max_attempts=args.max_attempts, metadata=metadata,
+        approvals=list(approval_grant.approved_step_ids) if approval_grant is not None else [],
+        approval_actor="worker", max_attempts=args.max_attempts, metadata=metadata,
     )
     item = SQLiteWorkQueue(args.queue_db).enqueue(submission)
-    print(item.model_dump_json(indent=2))
+    print(json.dumps(_public_work_item(item), indent=2))
 
 
 def cmd_queue_list(args):
     rows = SQLiteWorkQueue(args.queue_db).list(
         queue_name=args.queue_name, tenant_id=args.tenant, namespace=args.namespace, status=args.status, limit=args.limit
     )
-    print(json.dumps([x.model_dump(mode="json") for x in rows], indent=2))
+    print(json.dumps([_public_work_item(x) for x in rows], indent=2))
 
 
 def cmd_queue_stats(args):
@@ -874,7 +914,9 @@ def cmd_queue_stats(args):
 
 
 def cmd_queue_cancel(args):
-    print(SQLiteWorkQueue(args.queue_db).request_cancel(args.work_id).model_dump_json(indent=2))
+    print(json.dumps(_public_work_item(
+        SQLiteWorkQueue(args.queue_db).request_cancel(args.work_id)
+    ), indent=2))
 
 
 def cmd_queue_conformance(args):
@@ -916,21 +958,45 @@ async def cmd_worker_once_async(args):
             lease_heartbeat_seconds=args.lease_heartbeat_seconds, enforce_capabilities=args.strict_capabilities,
         )
 
+    approval_authorizer = None
+    if args.approval_key_env:
+        import os
+        if not args.approval_audience:
+            raise SystemExit("--approval-key-env requires --approval-audience")
+        value = os.environ.get(args.approval_key_env)
+        if not value:
+            raise SystemExit(f"approval signing key not set: {args.approval_key_env}")
+        try:
+            approval_authorizer = HMACApprovalAuthorizer(
+                {args.approval_key_id: value.encode("utf-8")},
+                audience=args.approval_audience,
+            )
+        except ValueError as exc:
+            raise SystemExit(f"invalid approval key configuration: {exc}") from exc
+    elif args.approval_audience:
+        raise SystemExit("--approval-audience requires --approval-key-env")
+
     coordinator = None if args.no_fencing else SQLiteFencingCoordinator(args.fence_db or (str(args.queue_db) + ".fences.sqlite3"))
     worker = DistributedWorker(
         queue=queue, runtime=runtime, runner_factory=runner_factory, queue_name=args.queue_name, worker_id=args.worker_id,
         concurrency=args.concurrency, visibility_timeout_seconds=args.visibility_timeout_seconds,
         heartbeat_seconds=args.worker_heartbeat_seconds, tenant_id=args.tenant, namespace=args.namespace,
         retry_delay_seconds=args.retry_delay_seconds, strict_capabilities=True, policy_resolver=policy_resolver,
+        approval_authorizer=approval_authorizer,
         coordinator=coordinator, fencing_ttl_seconds=args.fencing_ttl_seconds,
         allowed_run_root=args.allowed_run_root, allowed_plan_root=args.allowed_plan_root,
     )
     results = await worker.run_once()
     payload = [{
-        "work": x.work.model_dump(mode="json"), "state_status": x.state_status, "error": x.error
+        "work": _public_work_item(x.work), "state_status": x.state_status, "error": x.error
     } for x in results]
     print(json.dumps(payload, indent=2))
-    if any(x.work.status in {"DEAD", "FAILED"} or x.state_status == "FAILED" for x in results):
+    if any(
+        x.error is not None
+        or x.work.status in {"DEAD", "FAILED"}
+        or x.state_status == "FAILED"
+        for x in results
+    ):
         raise SystemExit(1)
 
 
@@ -1259,6 +1325,7 @@ def build_parser():
     q.add_argument("--require-capability", action="append", default=[])
     q.add_argument("--approve", action="append", default=[])
     q.add_argument("--approval-actor", default="worker")
+    q.add_argument("--approval-grant-file", help="host-signed approval grant JSON (requires explicit --work-id and --run-id)")
     q.add_argument("--max-attempts", type=int, default=3)
     q.add_argument("--metadata", help="JSON object")
     q.set_defaults(func=cmd_queue_enqueue)
@@ -1295,6 +1362,9 @@ def build_parser():
     q.add_argument("--namespace")
     q.add_argument("--tenant-policy-root")
     q.add_argument("--tenant-secret-root")
+    q.add_argument("--approval-key-env", help="environment variable containing host signing key (min 32 UTF-8 bytes)")
+    q.add_argument("--approval-key-id", default="primary", help="trusted HMAC key identifier")
+    q.add_argument("--approval-audience", help="required deployment audience when enabling signed approvals")
     q.add_argument("--fence-db")
     q.add_argument("--fencing-ttl-seconds", type=float)
     q.add_argument("--no-fencing", action="store_true")

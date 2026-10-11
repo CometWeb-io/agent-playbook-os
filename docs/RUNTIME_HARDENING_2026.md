@@ -325,3 +325,24 @@ uncompromised. High-assurance evidence also needs independent key custody,
 rotation, an external trust anchor, anti-rollback/version checkpoints, and
 retention controls. Avoid storing raw credentials or PII; telemetry redaction
 is best effort.
+
+
+## Signed approval grants for queued workers
+
+`HMACApprovalAuthorizer` provides a host-issued and worker-verified
+authorization primitive. A signed v1 grant binds `audience`, tenant,
+namespace, queue, work/run IDs, exact plan hash, plan and run destinations,
+backend, max attempts, approved step IDs, actor, issuer, nonce and expiration.
+
+The CLI only accepts signed grants with explicit work and run IDs; workers
+check HMAC using a separately configured environment key. Unsigned
+`--approve` remains refused for queue submissions. Grant payloads are
+redacted from CLI output and excluded from persisted run metadata; a
+metadata digest remains for provenance.
+
+The reference HMAC mechanism does **not** implement user authentication,
+revocation, one-time nonce consumption or authorization policy. Hosts must
+authenticate/authorize human sessions before signing; retries of the same
+work ID can reuse its unexpired grant. External IAM, key custody and
+anti-replay ledger remain release gates. See
+[signed approval grants](SIGNED_APPROVAL_GRANTS.md).
