@@ -598,13 +598,13 @@
           "type": "integer"
         },
         "cost_usd": {
-          "default": 0,
+          "default": 0.0,
           "minimum": 0,
           "title": "Cost Usd",
           "type": "number"
         },
         "wall_time_seconds": {
-          "default": 0,
+          "default": 0.0,
           "minimum": 0,
           "title": "Wall Time Seconds",
           "type": "number"
