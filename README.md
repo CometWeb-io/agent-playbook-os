@@ -632,3 +632,19 @@ by passing `integrity_key=secret_key_bytes` to both RecordingRuntime and
 ReplayRuntime; keep this key outside the cassette. See the
 [hardening guide](docs/RUNTIME_HARDENING_2026.md) for the quotas and trust
 boundaries.
+
+
+### Scope-bound signed human approvals
+
+Queue-submitted approval strings are not authority. Trusted approval services
+can now issue short-lived HMAC-SHA256 grants bound to a specific compiled plan,
+work/run identity, tenant, namespace, destination, retry envelope, approved
+steps and authenticated reviewer. The worker validates grants before any run
+state is created. The CLI supports `queue enqueue --approval-grant-file` and
+`worker once --approval-key-env --approval-audience`; credentials are read
+from the worker environment, not embedded in playbooks or queue submissions.
+
+See [signed approval grants](docs/SIGNED_APPROVAL_GRANTS.md) for the
+issuer-side API, complete CLI flow, key rotation and threat boundaries. The
+issuer must authenticate the person separately; a signature authenticates
+the grant issuer, not the human session. No IAM backend is implied.
