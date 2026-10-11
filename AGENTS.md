@@ -65,3 +65,8 @@ Do not claim that passing structural tests proves factual correctness of externa
 45. manual reconciliation of SUCCEEDED evidence must match its original result digest;
 46. never let on_fail skip/continue suppress post-dispatch material schema failures;
 47. resumed completed outputs (including nested) must still satisfy pinned schemas.
+
+48. never interpret ordinary post-dispatch material exceptions as proof that no side effect occurred;
+49. NoSideEffectPerformed requires host-side authoritative proof; never infer it from HTTP/network exception type;
+50. idempotent retries of unknown material outcomes require a NONEMPTY resolved key and an adapter that proves deduplication;
+51. avoid persisting raw provider exception text in material failure events and operator logs.
