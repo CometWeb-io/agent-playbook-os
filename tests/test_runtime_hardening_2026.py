@@ -537,3 +537,20 @@ def test_sqlite_workers_compete_without_duplicate_claims(tmp_path):
     assert set(flat) == ids
     assert len(flat) == len(set(flat))
     assert q.stats().by_status["COMPLETED"] == len(ids)
+
+
+@pytest.mark.asyncio
+async def test_inspection_exposes_continued_failure_without_claiming_business_success(tmp_path):
+    from agent_playbook_os.inspection import inspect_run
+    plan = Compiler().compile(pb([
+        {"id": "missing", "type": "action", "action": "not-installed", "on_fail": "continue"},
+        {"id": "after", "type": "action", "action": "set", "needs": ["missing"],
+         "with": {"value": "finished"}},
+    ]))
+    root = tmp_path / "run"
+    state = await Runner(ReferenceRuntime()).run(plan, root)
+    assert state.status == RunStatus.COMPLETED
+    report = inspect_run(root)
+    assert "completed_with_failed_steps" in report["risk_flags"]
+    assert report["requires_attention"] is True
+    assert report["business_outcome_verified"] is False
