@@ -45,7 +45,7 @@ from .distributed import (
 )
 from .tenancy import TenantFileSecretResolver, TenantPolicyResolver
 from .artifacts import ArtifactVerifierRegistry, FilesystemArtifactStore
-from .approval_grants import HMACApprovalAuthorizer, SignedApprovalGrant
+from .approval_grants import HMACApprovalAuthorizer, SignedApprovalGrant, MAX_GRANT_BYTES
 
 
 def parse_inputs(items):
@@ -855,7 +855,10 @@ def cmd_queue_enqueue(args):
         if not args.work_id or not args.run_id:
             raise SystemExit("signed approval grants require explicit --work-id and --run-id")
         try:
-            raw_grant = json.loads(Path(args.approval_grant_file).read_text(encoding="utf-8"))
+            grant_path = Path(args.approval_grant_file)
+            if grant_path.stat().st_size > MAX_GRANT_BYTES:
+                raise ValueError("signed approval grant file exceeds 16 KiB")
+            raw_grant = json.loads(grant_path.read_text(encoding="utf-8"))
             approval_grant = SignedApprovalGrant.model_validate(raw_grant)
         except Exception as exc:
             raise SystemExit("invalid signed approval grant file") from exc
