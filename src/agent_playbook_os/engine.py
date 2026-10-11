@@ -278,7 +278,12 @@ class Runner:
             side_effects=step.side_effects,
             idempotency_key=step_state.idempotency_key,
             retry_eligible=bool(
-                step_state.idempotency_key and self._runtime_supports_idempotency(step)
+                step_state.idempotency_key
+                and self._runtime_supports_idempotency(step)
+                and (
+                    not step.retry.retry_on
+                    or "SideEffectOutcomeUnknown" in step.retry.retry_on
+                )
             ),
         )
         state.invocations.append(record)
@@ -391,6 +396,15 @@ class Runner:
                 and inv.retry_eligible
                 and inv.idempotency_key
                 and self._runtime_supports_idempotency(step)
+                and (
+                    not step.retry.retry_on
+                    or "SideEffectOutcomeUnknown" in step.retry.retry_on
+                )
+                and (
+                    (state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)) is not None
+                    and (state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)).attempts
+                    < step.retry.max_attempts
+                )
             ):
                 inv.status = InvocationStatus.RECONCILED
                 inv.finished_at = now()
