@@ -288,3 +288,40 @@ executing a playbook. Runtime implicit network retrieval remains prohibited.
 This hardening does not make arbitrarily complex schemas safe from high CPU
 cost by itself. Production hosts should additionally enforce process-level
 resource limits and reject overly complex schemas during review.
+
+## Bounded, hash-linked record/replay cassettes (11 October 2026)
+
+The reference `RecordingRuntime` writes a JSONL cassette with
+`prev_hash` and `record_hash` on each record, using canonical SHA-256 over
+the redacted body. Append writers verify the terminal record and serialize
+writes with POSIX file locks when available. A failed cassette commit after a
+provider invocation is treated as `SideEffectOutcomeUnknown`, not as proof
+the downstream operation failed.
+
+Default limits are **128,000,000 bytes per cassette**, **24,000,000 bytes
+per record**, **10,000 streaming events per invocation**, and **16,000,000
+serialized stream bytes per invocation**. Replay enforces cassette, record
+and record-count limits before loading; it validates the complete record
+chain before execution. A replay divergence does not consume the record.
+
+Legacy cassettes without digests require explicit
+`ReplayRuntime(path, allow_legacy=True)`. Mixing digested and legacy records
+is rejected, and appending new digested records to an old cassette is refused.
+Start a new cassette when upgrading. The unsupported-object fallback no longer
+persists raw `repr()` text, which could contain credentials.
+
+**Authenticated mode:** for evidence that must resist unauthorized
+rewrites, configure the SDK with the same separately managed signing key:
+`RecordingRuntime(inner, path, integrity_key=key)` and
+`ReplayRuntime(path, integrity_key=key)`. A key must be at least 32 bytes.
+Each record is then authenticated with HMAC-SHA256 over its canonical digest.
+Wrong or missing keys, unauthenticated append attempts and attempts to
+downgrade to legacy records are rejected.
+
+**Important limitation:** plain SHA-256 chains without this optional HMAC
+provide accidental-corruption and inconsistency detection, **not authenticity**.
+HMAC protects only while its key is kept outside the cassette and remains
+uncompromised. High-assurance evidence also needs independent key custody,
+rotation, an external trust anchor, anti-rollback/version checkpoints, and
+retention controls. Avoid storing raw credentials or PII; telemetry redaction
+is best effort.

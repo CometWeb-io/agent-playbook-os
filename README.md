@@ -619,3 +619,16 @@ internal references (`#/$defs/...`, `#name`) but denies external
 schemas implicitly. The reference validator also limits schema size and
 nesting. See [runtime hardening](docs/RUNTIME_HARDENING_2026.md) for the exact
 limits, compatibility expectations and residual complexity risks.
+
+### Replay cassette integrity and quotas
+
+New record/replay cassettes are hash-linked and size bounded. Replay validates
+the chain before execution and refuses malformed, oversized or mixed-format
+records. To explicitly read a legacy cassette created before this change, use
+`ReplayRuntime(path, allow_legacy=True)` in Python; an existing legacy file
+cannot be appended to by the new writer. Unsigned hashes detect inconsistency but do **not** authenticate a
+cassette against a malicious writer. SDK hosts can opt in to HMAC records
+by passing `integrity_key=secret_key_bytes` to both RecordingRuntime and
+ReplayRuntime; keep this key outside the cassette. See the
+[hardening guide](docs/RUNTIME_HARDENING_2026.md) for the quotas and trust
+boundaries.
