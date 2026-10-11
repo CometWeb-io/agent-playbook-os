@@ -368,6 +368,10 @@ class InvocationRecord(StrictModel):
     kind: Literal["skill", "action", "agent", "eval"]
     side_effects: Literal["none", "local", "external", "destructive"] = "none"
     idempotency_key: str | None = None
+    # A durable opt-in written before dispatch, cleared on errors that
+    # require authoritative reconciliation. Legacy snapshots default to
+    # False instead of inferring retry eligibility from a key alone.
+    retry_eligible: bool = False
     status: InvocationStatus = InvocationStatus.STARTED
     started_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     finished_at: str | None = None
