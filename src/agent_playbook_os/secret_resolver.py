@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -55,6 +56,8 @@ class MappingSecretResolver:
 
 class FileSecretResolver:
     def __init__(self, roots: list[str | Path] | None = None, *, max_bytes: int = 64 * 1024):
+        if type(max_bytes) is not int or max_bytes <= 0:
+            raise ValueError("max_bytes must be a positive integer")
         self.roots = [Path(x).expanduser().resolve() for x in (roots or [])]
         self.max_bytes = max_bytes
 
@@ -87,14 +90,49 @@ class FileSecretResolver:
             if not candidates:
                 raise SecretResolutionError(f"file secret not found in configured roots: {raw}")
             path = candidates[0]
+        # Use dir_fd + O_NOFOLLOW, not stat() followed by read_text(): a
+        # symlink swap between those calls could escape the configured root.
+        if os.name != "posix" or not all(
+            hasattr(os, flag) for flag in ("O_DIRECTORY", "O_NOFOLLOW")
+        ):
+            raise SecretResolutionError("secure file secrets require POSIX no-follow directory handles")
+        roots = [root for root in self.roots if path.is_relative_to(root)]
+        if len(roots) != 1:
+            raise SecretResolutionError("file secret root is ambiguous or unconfigured")
+        relative = path.relative_to(roots[0])
+        parts = relative.parts
+        if not parts or any(x in {"", ".", ".."} for x in parts):
+            raise SecretResolutionError("invalid file secret relative path")
+        dir_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        parent = None
         try:
-            stat = path.stat()
+            parent = os.open(roots[0], dir_flags)
+            for component in parts[:-1]:
+                next_dir = os.open(component, dir_flags, dir_fd=parent)
+                os.close(parent)
+                parent = next_dir
+            secret_fd = os.open(parts[-1], file_flags, dir_fd=parent)
+            try:
+                info = os.fstat(secret_fd)
+                if not stat.S_ISREG(info.st_mode):
+                    raise SecretResolutionError("file secret must be a regular file")
+                if info.st_size > self.max_bytes:
+                    raise SecretResolutionError(f"file secret exceeds max_bytes={self.max_bytes}")
+                payload = os.read(secret_fd, self.max_bytes + 1)
+                if len(payload) > self.max_bytes:
+                    raise SecretResolutionError(f"file secret exceeds max_bytes={self.max_bytes}")
+                try:
+                    return SecretValue(payload.decode("utf-8").rstrip("\r\n"), ref)
+                except UnicodeDecodeError as exc:
+                    raise SecretResolutionError("file secret must be valid UTF-8") from exc
+            finally:
+                os.close(secret_fd)
         except OSError as exc:
-            raise SecretResolutionError(f"cannot read file secret: {path}: {exc}") from exc
-        if stat.st_size > self.max_bytes:
-            raise SecretResolutionError(f"file secret exceeds max_bytes={self.max_bytes}")
-        value = path.read_text(encoding="utf-8").rstrip("\r\n")
-        return SecretValue(value, ref)
+            raise SecretResolutionError("secure file secret read failed (symlink or inaccessible file)") from exc
+        finally:
+            if parent is not None:
+                os.close(parent)
 
 
 class SecretResolverChain:
