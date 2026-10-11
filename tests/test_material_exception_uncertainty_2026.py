@@ -148,3 +148,47 @@ async def test_valid_resolved_idempotency_key_can_retry_when_adapter_guarantees_
     assert len(state.invocations) == 2
     assert state.invocations[0].status == InvocationStatus.UNKNOWN
     assert state.invocations[1].status == InvocationStatus.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_explicit_retry_filter_blocks_even_idempotent_unknown_outcome(tmp_path):
+    attempts = []
+
+    async def handler(step, inputs, context):
+        attempts.append(context["control"]["attempt"])
+        raise OSError("connection lost after provider accepted request")
+
+    runtime = CallableRuntime(
+        actions={"write": handler},
+        action_side_effects={"write": "external"},
+        idempotent_actions={"write"},
+    )
+    state = await Runner(runtime).run(
+        make_plan(key="valid-key", retry_on=["ValueError"]),
+        tmp_path / "retry-filter",
+    )
+    assert state.status == RunStatus.FAILED
+    assert attempts == [1]
+    assert state.invocations[0].status == InvocationStatus.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_explicit_retry_filter_can_allow_idempotent_unknown_outcome(tmp_path):
+    attempts = []
+    async def handler(step, inputs, context):
+        attempts.append(context["control"]["attempt"])
+        if len(attempts) == 1:
+            raise OSError("response lost after deduplicated send")
+        return "recovered"
+
+    runtime = CallableRuntime(
+        actions={"write": handler},
+        action_side_effects={"write": "external"},
+        idempotent_actions={"write"},
+    )
+    state = await Runner(runtime).run(
+        make_plan(key="valid-key", retry_on=["SideEffectOutcomeUnknown"]),
+        tmp_path / "retry-filter-allow",
+    )
+    assert state.status == RunStatus.COMPLETED
+    assert attempts == [1, 2]
