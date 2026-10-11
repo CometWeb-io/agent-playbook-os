@@ -663,7 +663,7 @@ class Runner:
                 self._emit(store, state, "step.started", step.id, type=step.type, idempotency_key=ss.idempotency_key, isolation=effective_isolation)
 
                 output = await self._execute_with_retry(step, plan, state, store, budget)
-                self._validate_output_schema(step, output, plan)
+                self._validate_completed_output(step, output, plan)
                 ss.output = output
                 ss.status = StepStatus.COMPLETED
                 ss.error = None
@@ -1046,6 +1046,25 @@ class Runner:
         schema = json.loads(payload.decode("utf-8"))
         validate_output_offline(output, schema)
 
+    def _validate_completed_output(self, step: StepSpec, output, plan) -> None:
+        """Validation failure after dispatch does not undo material effects.
+
+        Skip/continue may be appropriate for pure computations, but cannot
+        certify a material call that already returned from an external host
+        while its output contract failed.
+        """
+        try:
+            self._validate_output_schema(step, output, plan)
+        except (IntegrityError, ReconciliationRequired):
+            raise
+        except Exception as exc:
+            if step.side_effects in {"local", "external", "destructive"}:
+                raise ReconciliationRequired(
+                    f"material step {step.id} returned but its output contract failed; "
+                    "verify the external outcome before any resume"
+                ) from exc
+            raise
+
     def _render_step_params(self, step: StepSpec, context: dict[str, Any]):
         raw = render(step.with_, context)
         if step.type == "playbook":
@@ -1361,7 +1380,7 @@ class Runner:
                 out = await self._execute_foreach_nested_with_retry(
                     nested, plan, state, store, budget, local_state, local, parent, index, item, key
                 )
-                self._validate_output_schema(nested, out, plan)
+                self._validate_completed_output(nested, out, plan)
                 local_state.status = StepStatus.COMPLETED
                 local_state.output = out
                 local_state.error = None
@@ -1647,7 +1666,7 @@ class Runner:
                     nested, plan, state, store, budget, local_state, local,
                     parent, iteration, previous, history, key
                 )
-                self._validate_output_schema(nested, out, plan)
+                self._validate_completed_output(nested, out, plan)
                 local_state.status = StepStatus.COMPLETED
                 local_state.output = out
                 local_state.error = None
@@ -1948,7 +1967,7 @@ class Runner:
                 out = await self._execute_nested_with_retry(
                     nested, plan, state, store, budget, local_state, local, parent.id, branch, key
                 )
-                self._validate_output_schema(nested, out, plan)
+                self._validate_completed_output(nested, out, plan)
                 local_state.status = StepStatus.COMPLETED
                 local_state.output = out
                 local_state.error = None
