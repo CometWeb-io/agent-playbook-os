@@ -77,12 +77,16 @@ def _input_fingerprint_value(value: Any) -> Any:
 
 def _input_signature(kind: str, step_id: str, inputs: Any, integrity_key: bytes | None, *, scheme: str):
     if scheme == _REDACTED_INPUT_SCHEME:
-        if _contains_secret(inputs):
+        sanitized = redact(inputs)
+        # Even a plain string under an "api_key"/"password" field or a
+        # Bearer header loses its identity when redacted. Such collisions
+        # must not silently reuse an unrelated recorded result.
+        if _contains_secret(inputs) or sanitized != inputs:
             raise SecretResolutionError(
-                "secret-bearing cassette invocation requires integrity_key; "
-                "redacted inputs cannot distinguish different secret values"
+                "secret-bearing or lossy-redacted cassette input requires integrity_key; "
+                "redacted inputs cannot distinguish different original values"
             )
-        return canonical_hash({"kind": kind, "step_id": step_id, "inputs": redact(inputs)})
+        return canonical_hash({"kind": kind, "step_id": step_id, "inputs": sanitized})
     if scheme == _KEYED_INPUT_SCHEME:
         if integrity_key is None:
             raise SecretResolutionError("HMAC cassette input signatures require an integrity_key")
