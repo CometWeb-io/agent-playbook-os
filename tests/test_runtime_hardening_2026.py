@@ -467,3 +467,43 @@ async def test_anthropic_refusal_is_not_a_normal_success():
     step = pb([{"id": "a", "type": "agent"}]).spec.steps[0]
     with pytest.raises(ProviderRefusal):
         await AnthropicMessagesRuntime(client, model="demo").execute_agent(step, {}, {})
+
+
+@pytest.mark.skipif(__import__("os").name != "posix", reason="secure openat requires POSIX")
+def test_tenant_secrets_reject_symlinked_parent_and_leaf(tmp_path):
+    from agent_playbook_os.distributed import TenantScope
+    root = tmp_path / "tenants"
+    normal = root / "a" / "default"
+    normal.mkdir(parents=True)
+    (normal / "KEY").write_text("expected", encoding="utf-8")
+    resolver = TenantFileSecretResolver(root, TenantScope(tenant_id="a"))
+    assert resolver.resolve("tenant-secret://KEY") == "expected"
+
+    (normal / "LINK").symlink_to(normal / "KEY")
+    with pytest.raises(Exception, match="secure tenant secret lookup"):
+        resolver.resolve("tenant-secret://LINK")
+
+    fake_root = tmp_path / "parent"
+    fake_root.mkdir()
+    (fake_root / "real").mkdir()
+    (fake_root / "real" / "default").mkdir()
+    (fake_root / "real" / "default" / "KEY").write_text("expected", encoding="utf-8")
+    (fake_root / "alias").symlink_to(fake_root / "real", target_is_directory=True)
+    second = TenantFileSecretResolver(fake_root, TenantScope(tenant_id="alias"))
+    with pytest.raises(Exception, match="secure tenant secret lookup"):
+        second.resolve("tenant-secret://KEY")
+
+
+@pytest.mark.skipif(__import__("os").name != "posix", reason="secure openat requires POSIX")
+def test_tenant_secret_file_limits_and_nonregular_files(tmp_path):
+    from agent_playbook_os.distributed import TenantScope
+    root = tmp_path / "secrets"
+    location = root / "a" / "default"
+    location.mkdir(parents=True)
+    (location / "KEY").write_text("over-limit", encoding="utf-8")
+    resolver = TenantFileSecretResolver(root, TenantScope(tenant_id="a"), max_bytes=3)
+    with pytest.raises(Exception, match="maximum size"):
+        resolver.resolve("tenant-secret://KEY")
+    (location / "DIRECTORY").mkdir()
+    with pytest.raises(Exception):
+        resolver.resolve("tenant-secret://DIRECTORY")
