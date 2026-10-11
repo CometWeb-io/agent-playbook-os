@@ -115,8 +115,9 @@ new CI/CD infrastructure as part of this hardening pass.
 
 1. Complete transactional coverage of all state mutations (including pre-dispatch
    journals), add power-loss and multiprocess fault injection for every boundary.
-2. Pin transitive subplaybooks at compile time. Local output JSON Schemas are
-   now SHA-256 pinned in compiled plans when a source path is supplied.
+2. Keep transitive dependency locks compatible across schema versions. Child
+   playbook sources and local JSON Schemas are SHA-256 pinned at compilation;
+   production dependency distribution still needs signed catalogs and trust roots.
 3. Introduce host-authenticated action registries, short-lived permission grants,
    provider-native reconciliation and explicit approval actor verification.
 4. Add production store adapters only behind the same durability/fencing conformance.
@@ -169,3 +170,28 @@ new CI/CD infrastructure as part of this hardening pass.
 4. Auditable human identity and cryptographic approval grants, tenant IAM and
    retention/privacy policy across observability and durable outputs.
 5. Atomic handling of pre-dispatch journaling and filesystem state/event windows.
+
+## Host-authorized queue approvals and transitive child locks (11 October 2026)
+
+A work submission's `approvals` and `approval_actor` are **untrusted fields**.
+`DistributedWorker` now rejects submitted approval requests unless a host
+provides an `approval_authorizer(item, compiled_plan)` callback. The callback
+must return an independently verified `(set[str], authenticated_actor)` tuple;
+every requested ID must be included in the host's grant. The actor in persisted
+approval records comes exclusively from this callback. Plain CLI
+`queue enqueue --approve` is intentionally rejected. Without a host grant,
+workers pause on human gates and emit `WAITING_APPROVAL` instead of inferring a
+human decision.
+
+`CompiledPlan.subplaybook_locks` contains portable relative paths and SHA-256
+hashes of parsed child playbooks across a bounded transitive import graph.
+Compiler rejects path escapes, cycles, excessive nesting and more than 64
+unique child files. Runner verifies the entire locked dependency manifest
+**before** run directory creation and repeats direct source verification before
+every child invocation. Old compiled plans without child imports retain their
+original integrity hashes. Older plans containing child steps but lacking locks
+must be recompiled and reviewed; no silent upgrade of executable semantics.
+
+This is source integrity, not a signer identity or publication-trust proof.
+Signed package distribution, manifest signing, actor authentication, replay
+anti-reuse and real-provider conformance remain separate product gates.
