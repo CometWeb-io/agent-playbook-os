@@ -988,7 +988,12 @@ async def cmd_worker_once_async(args):
         "work": _public_work_item(x.work), "state_status": x.state_status, "error": x.error
     } for x in results]
     print(json.dumps(payload, indent=2))
-    if any(x.work.status in {"DEAD", "FAILED"} or x.state_status == "FAILED" for x in results):
+    if any(
+        x.error is not None
+        or x.work.status in {"DEAD", "FAILED"}
+        or x.state_status == "FAILED"
+        for x in results
+    ):
         raise SystemExit(1)
 
 
