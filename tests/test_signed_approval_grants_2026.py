@@ -320,3 +320,75 @@ def test_signed_enqueue_refuses_altered_submission_scope(tmp_path):
     ])
     with pytest.raises(SystemExit, match="scope differs from submission: work_id"):
         cmd_queue_enqueue(args)
+
+
+def test_signed_queue_grant_cannot_redirect_run_directory_or_backend(tmp_path):
+    import json
+    from agent_playbook_os.cli import build_parser, cmd_queue_enqueue
+    plan = compiled()
+    path = tmp_path / "plan.json"
+    path.write_text(plan.model_dump_json(), encoding="utf-8")
+    correct_run = tmp_path / "acme" / "production" / "run-123"
+    signed = submission(plan_path=str(path), run_dir=str(correct_run))
+    grant_path = tmp_path / "grant.json"
+    grant_path.write_text(json.dumps(signed_payload(item=signed, plan=plan)), encoding="utf-8")
+    parser = build_parser()
+    base = [
+        "queue", "enqueue", str(path), "--queue-db", str(tmp_path / "queue.db"),
+        "--queue-name", "priority", "--tenant", "acme", "--namespace", "production",
+        "--run-id", "run-123", "--work-id", "work-123",
+        "--approval-grant-file", str(grant_path),
+    ]
+    with pytest.raises(SystemExit, match="run_dir"):
+        cmd_queue_enqueue(parser.parse_args(base + ["--run-root", str(tmp_path / "other")]))
+    with pytest.raises(SystemExit, match="store_backend"):
+        cmd_queue_enqueue(parser.parse_args(base + [
+            "--run-root", str(tmp_path), "--store", "sqlite",
+        ]))
+
+
+def test_queue_rejects_oversized_signed_file_without_json_loading(tmp_path):
+    from agent_playbook_os.cli import build_parser, cmd_queue_enqueue
+    path = tmp_path / "plan.json"
+    path.write_text(compiled().model_dump_json(), encoding="utf-8")
+    grant_file = tmp_path / "oversize.json"
+    grant_file.write_bytes(b" " * 20000)
+    parser = build_parser()
+    args = parser.parse_args([
+        "queue", "enqueue", str(path), "--queue-db", str(tmp_path / "queue.db"),
+        "--work-id", "work-123", "--run-id", "run-123",
+        "--approval-grant-file", str(grant_file),
+    ])
+    with pytest.raises(SystemExit, match="invalid signed approval grant file"):
+        cmd_queue_enqueue(args)
+
+
+@pytest.mark.asyncio
+async def test_invalid_signed_worker_grant_has_failure_exit_status(tmp_path, monkeypatch, capsys):
+    from agent_playbook_os.cli import build_parser, cmd_worker_once_async
+    plan = compiled()
+    path = tmp_path / "plan.json"
+    path.write_text(plan.model_dump_json(), encoding="utf-8")
+    work = submission(
+        plan_path=str(path), run_dir=str(tmp_path / "run"),
+        required_capabilities=required_capabilities_for_plan(plan),
+    )
+    grant = signed_payload(item=work, plan=plan)
+    grant["actor"] = "unauthorized"
+    work.metadata = {"approval_grant": grant}
+    queue_path = tmp_path / "queue.db"
+    SQLiteWorkQueue(queue_path).enqueue(work)
+    monkeypatch.setenv("APBOS_TEST_GRANT_KEY", "K" * 32)
+    parser = build_parser()
+    args = parser.parse_args([
+        "worker", "once", "--queue-db", str(queue_path),
+        "--queue-name", "priority",
+        "--approval-key-env", "APBOS_TEST_GRANT_KEY",
+        "--approval-audience", "production",
+    ])
+    with pytest.raises(SystemExit) as exc:
+        await cmd_worker_once_async(args)
+    assert exc.value.code == 1
+    assert "signature mismatch" in capsys.readouterr().out
+    assert SQLiteWorkQueue(queue_path).get("work-123").status == WorkStatus.PENDING
+    assert not (tmp_path / "run" / "state.json").exists()
