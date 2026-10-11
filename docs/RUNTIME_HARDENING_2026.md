@@ -96,8 +96,12 @@ new CI/CD infrastructure as part of this hardening pass.
   about its effects, isolation, idempotency, provider receipts and output values.
 - `on_fail=skip/continue` may still mask ordinary business failures. A run marked
   `COMPLETED` is **not** by itself evidence that the requested business outcome occurred.
-- SQLite event insertion and snapshot updates do not yet constitute one global atomic
-  transaction. Host-side recovery must account for write uncertainty.
+- SQLite emitted events and their corresponding snapshots now share one atomic
+  transaction and a fault-injection regression. Separate **pre-dispatch journal**
+  snapshots are intentionally persisted ahead of an event; filesystem stores and
+  other direct state mutations are still not globally atomic. Crashed windows
+  must fail closed and be reconciled. This does **not** establish a full
+  event-sourced transactional workflow engine.
 - Secret classification based on runtime markers is not full information-flow
   security. Downstream SDK logging, custom objects and raw literal secrets require
   host-level controls.
@@ -109,8 +113,10 @@ new CI/CD infrastructure as part of this hardening pass.
 
 ## Roadmap after safety gate
 
-1. Make state/event commits transactional, add fault-injection and invariant tests.
-2. Pin full transitive subplaybook and output-schema dependencies at compile time.
+1. Complete transactional coverage of all state mutations (including pre-dispatch
+   journals), add power-loss and multiprocess fault injection for every boundary.
+2. Pin transitive subplaybooks at compile time. Local output JSON Schemas are
+   now SHA-256 pinned in compiled plans when a source path is supplied.
 3. Introduce host-authenticated action registries, short-lived permission grants,
    provider-native reconciliation and explicit approval actor verification.
 4. Add production store adapters only behind the same durability/fencing conformance.
@@ -118,3 +124,48 @@ new CI/CD infrastructure as part of this hardening pass.
    approvals, cancellation, retries and receipts) and paired quality benchmarks.
 6. Add tracing through established OpenTelemetry GenAI conventions, not a proprietary
    duplicate telemetry protocol.
+
+
+## October 11 reliability expansion
+
+- **Queue status correctness:** `ack({"status": ...})` preserves
+  `WAITING_APPROVAL`, `FAILED` and `CANCELLED`, rather than labelling every
+  acknowledged attempt as completed.
+- **SQLite atomic emitted transitions:** every Runner event and accompanying
+  snapshot share a single transaction; tested with an injected SQLite abort.
+  Full state-write atomicity remains a separate release gate.
+- **Compiler local schema integrity:** local JSON Schema contents are pinned
+  during compilation without mutating source playbooks, and verified again
+  during execution. Remote schema references still require explicit pins.
+- **Provider continuation/refusal:** tool calls and incomplete responses are
+  first-class non-retryable conditions in the reference adapters, not final
+  answers. If the playbook declared possible material effects, a nonterminal
+  provider response creates an UNKNOWN invocation pending reconciliation.
+- **Streaming durability:** partial token usage, artifacts, evidence and
+  provider receipts are saved when emitted; stream errors no longer erase them.
+  Budget enforcement happens after each usage event and makes already-started
+  material effects UNKNOWN on budget termination.
+- **Tenant secrets:** securely open each tenant/namespace directory component
+  using POSIX no-follow handles; reject symlinks, nonregular files and oversize
+  payloads. Non-POSIX tenant-file reads fail closed pending a verified OS-native
+  implementation.
+- **Lease safety:** locally alive PIDs remain leased despite heartbeat delays.
+  Dead-owner filesystem reclaim is serialized with POSIX flock. Remote-owner
+  recovery is deliberately manual/fail-closed; these stores remain reference
+  adapters, not distributed lease services.
+- **Inspection:** reports `requires_attention`, `risk_flags` and explicitly
+  `business_outcome_verified=false`, because completion/receipts are not
+  downstream truth.
+- **Concurrency:** independent worker threads contend for the SQLite queue in
+  a duplicate-claim test. This is not a multi-host deployment certification.
+
+### Remaining high-impact gaps
+
+1. Production-grade Postgres/managed queue and durable remote artifact backend
+   with cross-host fencing enforced on every material write.
+2. Full provider-managed tool loops, MCP authorization, receipt reconciliation,
+   sandboxes and live model evals for specific released adapter versions.
+3. Robust end-to-end output quality benchmarks against matched legacy baselines.
+4. Auditable human identity and cryptographic approval grants, tenant IAM and
+   retention/privacy policy across observability and durable outputs.
+5. Atomic handling of pre-dispatch journaling and filesystem state/event windows.
