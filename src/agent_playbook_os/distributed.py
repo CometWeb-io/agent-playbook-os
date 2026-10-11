@@ -685,7 +685,12 @@ class DistributedWorker:
                 cancellation_token=cancellation,
                 lease_owner=f"{self.worker_id}:work={item.work_id}:fence={item.fence}",
                 run_metadata={
-                    **item.metadata,
+                    # Queue metadata is untrusted caller input, and signed
+                    # approval grants are short-lived bearer capabilities.
+                    # Bind the submitted metadata by digest; never copy raw
+                    # credentials, payloads or arbitrary caller keys into
+                    # the durable run state.
+                    "submitted_metadata_hash": canonical_hash(item.metadata),
                     "distributed": {
                         "work_id": item.work_id,
                         "submission_run_id": item.run_id,
