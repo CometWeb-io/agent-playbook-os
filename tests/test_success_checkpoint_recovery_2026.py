@@ -375,3 +375,25 @@ async def test_distributed_worker_does_not_replay_orphaned_successful_effect(tmp
     assert "succeeded without a completed step checkpoint" in result.error
     assert calls == ["external-effect"]
     assert queue.get("job-1").status == WorkStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_inspection_flags_historic_material_success_hidden_by_skipped_step(tmp_path):
+    from agent_playbook_os.inspection import inspect_run
+    runtime = CallableRuntime(actions={"charge": lambda step, inputs, context: 7})
+    root = tmp_path / "old-run"
+    await Runner(runtime).run(plan(), root)
+    store = RunStore(root)
+    state = store.load_state()
+    state.steps["charge"].status = StepStatus.SKIPPED
+    state.steps["charge"].output = None
+    # Even a past 'COMPLETED' run must not be misrepresented as clean when
+    # it contains material effects without a completed step checkpoint.
+    store.save_state(state)
+    report = inspect_run(root)
+    assert report["status"] == "COMPLETED"
+    assert report["requires_attention"] is True
+    assert "material_success_without_step_checkpoint" in report["risk_flags"]
+    assert report["orphaned_success_invocations"] == [
+        state.invocations[0].invocation_id
+    ]
