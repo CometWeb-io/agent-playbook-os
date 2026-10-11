@@ -822,6 +822,7 @@ class Runner:
                         encoded = json.dumps(
                             event.model_dump(mode="json"), sort_keys=True,
                             separators=(",", ":"), ensure_ascii=False,
+                            allow_nan=False,
                         ).encode("utf-8")
                     except Exception as exc:
                         raise StreamProtocolError(
