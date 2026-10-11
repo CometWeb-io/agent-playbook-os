@@ -834,6 +834,11 @@ def _artifact_verifier_from_args(args):
 
 
 def cmd_queue_enqueue(args):
+    if args.approve:
+        raise SystemExit(
+            "queue --approve is not an authorization mechanism; "
+            "worker approvals require an authenticated host approval_authorizer"
+        )
     plan_path = Path(args.plan).resolve()
     plan = CompiledPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
     run_id = args.run_id or str(uuid4())
@@ -925,7 +930,7 @@ async def cmd_worker_once_async(args):
         "work": x.work.model_dump(mode="json"), "state_status": x.state_status, "error": x.error
     } for x in results]
     print(json.dumps(payload, indent=2))
-    if any(x.error and x.work.status in {"DEAD", "FAILED"} for x in results):
+    if any(x.work.status in {"DEAD", "FAILED"} or x.state_status == "FAILED" for x in results):
         raise SystemExit(1)
 
 
