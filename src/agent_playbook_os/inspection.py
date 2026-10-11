@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .models import InvocationStatus
+from .models import InvocationStatus, StepStatus
 from .storage import open_run_store
 
 
@@ -19,9 +19,21 @@ def inspect_run(run_dir: str | Path, *, artifact_verifier=None, tenant_scope=Non
         x.model_dump(mode="json") for x in state.invocations
         if x.status in {InvocationStatus.STARTED, InvocationStatus.UNKNOWN}
     ]
+    orphaned_success_invocations = [
+        inv.invocation_id for inv in state.invocations
+        if inv.status == InvocationStatus.SUCCEEDED
+        and inv.side_effects in {"local", "external", "destructive"}
+        and (
+            (state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)) is None
+            or (state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)).status
+            != StepStatus.COMPLETED
+        )
+    ]
     flags: list[str] = []
     if any(x["side_effects"] in {"local", "external", "destructive"} for x in uncertain):
         flags.append("unresolved_material_effects")
+    if orphaned_success_invocations:
+        flags.append("material_success_without_step_checkpoint")
     if state.pending_approvals:
         flags.append("human_approval_pending")
     if state.status.value == "COMPLETED" and any(
@@ -41,6 +53,7 @@ def inspect_run(run_dir: str | Path, *, artifact_verifier=None, tenant_scope=Non
         "source_state_schema": store.source_state_version(),
         "pending_approvals": list(state.pending_approvals),
         "uncertain_invocations": uncertain,
+        "orphaned_success_invocations": orphaned_success_invocations,
         "risk_flags": flags,
         "requires_attention": bool(flags),
         "business_outcome_verified": False,  # A run state/receipt is never outcome verification.
