@@ -556,6 +556,14 @@ class Runner:
             for key, step_state in state.steps.items():
                 if step_state.status == StepStatus.COMPLETED:
                     self._validate_output_schema(completed_specs[key], step_state.output, plan)
+            for key, step_state in state.nested_steps.items():
+                if step_state.status == StepStatus.COMPLETED:
+                    nested_spec = self._step_for_invocation(plan, key)
+                    if nested_spec is None:
+                        raise IntegrityError(
+                            f"completed nested step cannot be mapped to compiled plan: {key}"
+                        )
+                    self._validate_output_schema(nested_spec, step_state.output, plan)
             self._emit(store, state, "run.resumed", approvals=sorted(approvals))
         else:
             if store.has_any_run_data():
