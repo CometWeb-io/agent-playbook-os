@@ -435,3 +435,40 @@ validation, **not** proof of provider authenticity or external success.
 These invariants have regression tests for normal and streamed outputs,
 including duplicated valid evidence and conflicting provider/artifact/
 evidence IDs. Live provider contract conformance remains required.
+
+## Completed provider invocation without durable step checkpoint
+
+A process can die after the external provider returns and
+`invocation.finished(SUCCEEDED)` is journaled, but before
+`step.completed` is durably checkpointed (e.g. during output-schema
+validation, budget check or snapshot failure). Before this hardening,
+a resumed run could re-dispatch the material action even though the
+downstream effect had already occurred.
+
+The resume gate now detects material `SUCCEEDED` invocations whose
+top-level or nested step is not durably `COMPLETED`. These cases require
+manual reconciliation, **regardless of the adapter's idempotency claims**,
+before any further execution. The original result hash remains available;
+a trusted operator may finalize the orphaned result only with an output
+whose canonical/redacted SHA-256 matches that saved digest. An observed
+successful invocation can never be relabeled `not-executed`. A succeeded
+invocation attached to a completed step cannot be reconciled again.
+
+When resuming, the runner also revalidates output schemas of completed
+top-level and nested steps, so manually supplied evidence cannot bypass
+a previously failing output contract. Validation failure after a material
+call is non-skippable even when an author chose `on_fail=skip` or
+`on_fail=continue`. Pure no-effect computations retain their declared
+failure-handling behavior.
+
+Operator APIs now distinguish **missing output** from an explicitly
+supplied JSON `null`: `reconcile --output null` is valid when its
+digest matches the original invocation, while omitting `--output` on
+a succeeded reconciliation still fails closed.
+
+Regression evidence includes post-dispatch snapshot fault injection,
+top-level/parallel/foreach/while crash-window recovery on filesystem
+and SQLite, null results, schema-rejection non-skippability and
+distributed-worker recovery. It establishes safe no-repeat behavior for
+these tested reference scenarios, **not** exactly-once semantics for
+arbitrary external providers or multi-host storage.
