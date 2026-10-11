@@ -61,7 +61,17 @@ class ApprovalRequired(StepExecutionError):
 
 
 class SideEffectOutcomeUnknown(StepExecutionError):
-    pass
+    """The material operation may have taken effect; its outcome is unknown."""
+
+
+class NoSideEffectPerformed(StepExecutionError):
+    """Host adapter attests that the requested operation never took effect.
+
+    Use only after checking the provider's authoritative response or before
+    dispatch. An ordinary exception, network timeout or HTTP error cannot
+    establish that an external side effect was absent.
+    """
+
 
 class SecretResolutionError(StepExecutionError):
     pass
