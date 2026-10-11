@@ -821,6 +821,17 @@ class Runner:
         raise last
 
     @staticmethod
+    def _register_durable_reference(items: list, value, *, kind: str) -> None:
+        prior = next((item for item in items if item.id == value.id), None)
+        if prior is not None:
+            if prior.model_dump(mode="json") != value.model_dump(mode="json"):
+                raise ProviderEvidenceConflict(
+                    f"conflicting {kind} identity {value.id}; independent reconciliation required"
+                )
+            return
+        items.append(value)
+
+    @staticmethod
     def _register_provider_receipt(state: RunState, receipt) -> None:
         """Treat a receipt ID as immutable provider evidence, not an upsert key.
 
@@ -886,13 +897,15 @@ class Runner:
                         state.usage.add(event.usage)
                         step_state.usage.add(event.usage)
                     elif event.type == "artifact" and event.artifact is not None:
+                        self._register_durable_reference(
+                            state.artifacts, event.artifact, kind="artifact"
+                        )
                         aggregate.artifacts.append(event.artifact)
-                        if not any(x.id == event.artifact.id for x in state.artifacts):
-                            state.artifacts.append(event.artifact)
                     elif event.type == "evidence" and event.evidence_ref is not None:
+                        self._register_durable_reference(
+                            state.evidence_refs, event.evidence_ref, kind="evidence"
+                        )
                         aggregate.evidence_refs.append(event.evidence_ref)
-                        if not any(x.id == event.evidence_ref.id for x in state.evidence_refs):
-                            state.evidence_refs.append(event.evidence_ref)
                     elif event.type == "receipt" and event.receipt is not None:
                         aggregate.provider_receipts.append(event.receipt)
                         receipt = event.receipt.model_copy(update={"metadata": redact(event.receipt.metadata)})
@@ -936,16 +949,10 @@ class Runner:
         if not usage_already_accounted:
             state.usage.add(raw.usage)
             step_state.usage.add(raw.usage)
-        existing_artifacts = {x.id for x in state.artifacts}
         for ref in raw.artifacts:
-            if ref.id not in existing_artifacts:
-                state.artifacts.append(ref)
-                existing_artifacts.add(ref.id)
-        existing_evidence = {x.id for x in state.evidence_refs}
+            self._register_durable_reference(state.artifacts, ref, kind="artifact")
         for ref in raw.evidence_refs:
-            if ref.id not in existing_evidence:
-                state.evidence_refs.append(ref)
-                existing_evidence.add(ref.id)
+            self._register_durable_reference(state.evidence_refs, ref, kind="evidence")
         receipt_ids = []
         for receipt in raw.provider_receipts:
             safe_receipt = receipt.model_copy(update={"metadata": redact(receipt.metadata)})
