@@ -152,3 +152,100 @@ async def test_already_completed_successful_invocation_is_not_reconcilable(tmp_p
         RunStore(root).reconcile_invocation(
             finished.invocations[0].invocation_id, outcome="succeeded", output=7,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", [RunStore, SQLiteRunStore])
+async def test_real_postdispatch_snapshot_failure_blocks_second_external_effect(tmp_path, backend):
+    calls = []
+
+    class FailOnceAfterProviderSuccess(backend):
+        def save_state(self, state):
+            if (
+                not getattr(self, "_injected", False)
+                and any(x.status == InvocationStatus.SUCCEEDED for x in state.invocations)
+                and state.steps["charge"].status == StepStatus.COMPLETED
+            ):
+                self._injected = True
+                raise OSError("simulated persistence interruption after external success")
+            return super().save_state(state)
+
+    async def charge(step, inputs, context):
+        calls.append("external-effect")
+        return 7
+
+    root = tmp_path / backend.backend_id
+    runtime = CallableRuntime(actions={"charge": charge})
+    compiled = plan()
+    state = await Runner(
+        runtime, store_factory=FailOnceAfterProviderSuccess
+    ).run(compiled, root)
+    assert state.status == RunStatus.FAILED
+    assert len(calls) == 1
+    recorded = backend(root).load_state()
+    assert recorded.invocations[-1].status == InvocationStatus.SUCCEEDED
+    assert recorded.steps["charge"].status != StepStatus.COMPLETED
+    with pytest.raises(ReconciliationRequired, match="succeeded without a completed"):
+        await Runner(runtime, store_factory=backend).run(compiled, root, resume=True)
+    assert calls == ["external-effect"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", [RunStore, SQLiteRunStore])
+async def test_explicit_json_null_output_can_be_reconciled_but_missing_is_rejected(tmp_path, backend):
+    async def action(step, inputs, context):
+        return None
+
+    compiled = plan()
+    root = tmp_path / backend.backend_id
+    first = await Runner(
+        CallableRuntime(actions={"charge": action}), store_factory=backend
+    ).run(compiled, root)
+    assert first.status == RunStatus.COMPLETED
+    saved = backend(root).load_state()
+    inv = saved.invocations[-1]
+    assert inv.status == InvocationStatus.SUCCEEDED
+    ss = saved.steps["charge"]
+    ss.status = StepStatus.RUNNING
+    ss.output = None
+    saved.status = RunStatus.FAILED
+    backend(root).save_state(saved)
+    with pytest.raises(ReconciliationRequired, match="requires output"):
+        backend(root).reconcile_invocation(inv.invocation_id, outcome="succeeded")
+    restored = backend(root).reconcile_invocation(
+        inv.invocation_id, outcome="succeeded", output=None
+    )
+    assert restored.invocations[-1].status == InvocationStatus.RECONCILED
+    assert restored.steps["charge"].status == StepStatus.COMPLETED
+    resumed = await Runner(
+        CallableRuntime(actions={"charge": action}), store_factory=backend
+    ).run(compiled, root, resume=True)
+    assert resumed.status == RunStatus.COMPLETED
+
+
+def test_cli_explicit_json_null_is_not_missing_output(tmp_path, capsys):
+    import asyncio
+    from types import SimpleNamespace
+    from agent_playbook_os.cli import cmd_reconcile
+    compiled = plan()
+    root = tmp_path / "run"
+    async def execute():
+        return await Runner(CallableRuntime(actions={"charge": lambda s, i, c: None})).run(
+            compiled, root
+        )
+    first = asyncio.run(execute())
+    store = RunStore(root)
+    saved = store.load_state()
+    saved.steps["charge"].status = StepStatus.RUNNING
+    saved.status = RunStatus.FAILED
+    store.save_state(saved)
+    kwargs = dict(
+        run_dir=str(root), invocation_id=first.invocations[0].invocation_id,
+        outcome="succeeded", actor="human", note=None
+    )
+    from agent_playbook_os.errors import ReconciliationRequired
+    with pytest.raises(ReconciliationRequired, match="requires output"):
+        cmd_reconcile(SimpleNamespace(**kwargs, output=None))
+    cmd_reconcile(SimpleNamespace(**kwargs, output="null"))
+    capsys.readouterr()
+    assert store.load_state().steps["charge"].status == StepStatus.COMPLETED
