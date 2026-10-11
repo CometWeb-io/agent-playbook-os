@@ -195,3 +195,14 @@ must be recompiled and reviewed; no silent upgrade of executable semantics.
 This is source integrity, not a signer identity or publication-trust proof.
 Signed package distribution, manifest signing, actor authentication, replay
 anti-reuse and real-provider conformance remain separate product gates.
+
+## Hardened generic file-secret resolution
+
+The generic `FileSecretResolver` now validates the requested path against
+configured roots and reads the canonical target through a POSIX directory
+handle with `O_NOFOLLOW` for each directory and the final file. It verifies
+regular-file identity with `fstat`, limits reads to `max_bytes + 1`,
+rejects invalid UTF-8, and wraps the result in a redaction marker. This avoids
+the previous `stat`-then-`read_text` race. Roots must be trusted by the host.
+Non-POSIX systems currently fail closed rather than silently using an unsafe
+implementation. Cross-platform secure support requires an OS-native adapter.
