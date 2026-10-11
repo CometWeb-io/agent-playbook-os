@@ -699,3 +699,13 @@ that can prove a request had no effect may raise `NoSideEffectPerformed`;
 ordinary connection or HTTP errors are not such proof. This behavior
 is covered by injected post-effect failures across top-level and nested
 workflows. See [runtime hardening](docs/RUNTIME_HARDENING_2026.md).
+
+### Resume authorization for ambiguous effects
+
+A prior UNKNOWN invocation is no longer auto-retried solely because it
+has an idempotency key. The durable invocation journal now records
+`retry_eligible` before dispatch. Resume also requires runtime-proven
+idempotency, an allowed error category and **remaining attempt budget**.
+Provider continuation and contradictory evidence force reconciliation.
+Legacy journal records default to a conservative manual-only policy.
+See [runtime hardening](docs/RUNTIME_HARDENING_2026.md).
