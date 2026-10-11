@@ -150,3 +150,48 @@ def test_hmac_input_scheme_is_independent_of_cassette_record_mac(tmp_path):
     assert signature != _input_signature(
         "action", "send", secret("canary-2"), KEY, scheme="hmac-sha256:inputs-v1"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("inputs", [
+    {"password": "one-secret"},
+    {"api_key": "other-secret"},
+    {"headers": {"Authorization": "Bearer abc123"}},
+    {"authorization": "Bearer abc123"},
+    {"ordinary": "Bearer abc123"},
+    {"nested": [{"password": "another"}]},
+])
+async def test_unkeyed_cassette_rejects_lossy_plain_string_redaction(tmp_path, inputs):
+    calls = []
+
+    async def send(step, data, context):
+        calls.append(True)
+        return {"ok": True}
+
+    cassette = tmp_path / "unsafe.jsonl"
+    recorder = RecordingRuntime(
+        CallableRuntime(actions={"send": send}), cassette
+    )
+    with pytest.raises(SecretResolutionError, match="requires integrity_key"):
+        await recorder.execute_action(STEP, inputs, {})
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_keyed_cassette_distinguishes_raw_password_values(tmp_path):
+    cassette = tmp_path / "raw-password.jsonl"
+
+    async def send(step, inputs, context):
+        return {"ok": True}
+
+    recorder = RecordingRuntime(
+        CallableRuntime(actions={"send": send}), cassette, integrity_key=KEY
+    )
+    await recorder.execute_action(STEP, {"password": "first-value"}, {})
+    replay = ReplayRuntime(cassette, integrity_key=KEY)
+    with pytest.raises(RuntimeError, match="replay divergence"):
+        await replay.execute_action(STEP, {"password": "second-value"}, {})
+    assert replay.index == 0
+    assert await replay.execute_action(STEP, {"password": "first-value"}, {}) == {"ok": True}
+    assert "first-value" not in cassette.read_text()
+    assert "second-value" not in cassette.read_text()
