@@ -7,7 +7,7 @@ import yaml
 
 from .models import PolicySpec
 from .policy import compose_policies
-from .secret_resolver import SecretResolutionError
+from .secret_resolver import SecretResolutionError, SecretValue
 from .distributed import TenantScope
 
 
@@ -76,11 +76,15 @@ class TenantFileSecretResolver:
         self.root = Path(root).resolve()
         self.scope = scope
 
-    def can_resolve(self, ref: str) -> bool:
+    def supports(self, ref: str) -> bool:
         return isinstance(ref, str) and ref.startswith(self.scheme)
 
-    def resolve(self, ref: str) -> str:
-        if not self.can_resolve(ref):
+    def can_resolve(self, ref: str) -> bool:
+        # Compatibility with hosts using the older tenant-only API.
+        return self.supports(ref)
+
+    def resolve(self, ref: str) -> SecretValue:
+        if not self.supports(ref):
             raise SecretResolutionError(f"unsupported tenant secret reference: {ref}")
         name = ref[len(self.scheme):]
         if not name or name in {".", ".."} or "/" in name or "\\" in name:
@@ -91,4 +95,4 @@ class TenantFileSecretResolver:
         path = tenant_path(self.root, self.scope, name)
         if not path.exists() or not path.is_file():
             raise SecretResolutionError(f"tenant secret not found: {name}")
-        return path.read_text(encoding="utf-8").rstrip("\r\n")
+        return SecretValue(path.read_text(encoding="utf-8").rstrip("\r\n"), ref)
