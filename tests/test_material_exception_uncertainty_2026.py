@@ -14,7 +14,7 @@ from agent_playbook_os.storage import SQLiteRunStore
 from agent_playbook_os.store import RunStore
 
 
-def make_plan(layout="top", *, effect="external", key=None, retry_on=None):
+def make_plan(layout="top", *, effect="external", key="stable-reference-key", retry_on=None):
     step = {
         "id": "write", "type": "action", "action": "write",
         "side_effects": effect,
@@ -37,7 +37,11 @@ def make_plan(layout="top", *, effect="external", key=None, retry_on=None):
         "apiVersion": "playbook.agent/v1alpha1", "kind": "Playbook",
         "metadata": {"id": "material-uncertainty", "version": "1.0.0",
                      "description": "Never blindly repeat a material effect"},
-        "spec": {"policy": {"require_approval_for": []}, "steps": [top]},
+        "spec": {
+            "policy": {"require_approval_for": []},
+            "execution": {"max_attempts": 3},
+            "steps": [top],
+        },
     }))
 
 
@@ -112,7 +116,7 @@ async def test_runtime_idempotency_never_overrides_missing_resolved_key(tmp_path
     # The template exists but resolves to an empty string, which is not an
     # idempotency key on the remote provider.
     state = await Runner(runtime).run(
-        make_plan(key="{{ inputs.empty }}"), tmp_path / "blank-key",
+        make_plan(key="{{ '' }}"), tmp_path / "blank-key",
     )
     assert state.status == RunStatus.FAILED
     assert state.invocations[0].status == InvocationStatus.UNKNOWN
