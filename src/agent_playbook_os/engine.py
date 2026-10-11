@@ -12,7 +12,7 @@ from .schema_resolver import validate_output_offline, MAX_SCHEMA_BYTES
 from .budgets import BudgetController
 from .compiler import Compiler
 from .errors import (
-    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ProviderEvidenceConflict, StreamProtocolError, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
+    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, ExternalExecutionRequired, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ProviderEvidenceConflict, StreamProtocolError, ReconciliationRequired, SideEffectOutcomeUnknown, NoSideEffectPerformed, StepExecutionError
 )
 from .expressions import render, safe_eval
 from .integrity import compiled_plan_integrity
@@ -741,15 +741,45 @@ class Runner:
             setattr(state.usage, field, getattr(state.usage, field) + 1)
             setattr(step_state.usage, field, getattr(step_state.usage, field) + 1)
 
-    def _should_retry(self, step: StepSpec, exc: Exception) -> bool:
+    def _should_retry(self, step: StepSpec, exc: Exception, *, resolved_key: str | None = None) -> bool:
         if isinstance(exc, (BudgetExceeded, IntegrityError, CancellationRequested, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ReconciliationRequired)):
             return False
         if isinstance(exc, SideEffectOutcomeUnknown):
-            return bool(step.idempotency_key and self._runtime_supports_idempotency(step))
+            # Both the resolved actual key and runtime-owned proof of
+            # provider idempotency are required. An explicit retry_on
+            # allowlist remains authoritative even for ambiguous outcomes.
+            if not resolved_key or not self._runtime_supports_idempotency(step):
+                return False
         if not step.retry.retry_on:
             return True
         names = {cls.__name__ for cls in type(exc).mro()}
         return bool(names & set(step.retry.retry_on))
+
+    @staticmethod
+    def _material_exception(step: StepSpec, exc: Exception) -> tuple[Exception, bool]:
+        """Unclassified failures after dispatch cannot prove a material effect absent.
+
+        A NoSideEffectPerformed signal is an explicit host-owned assertion,
+        not an interpretation of a generic ValueError/HTTP/transport failure.
+        Avoid copying provider exception detail into the journal, where it
+        might carry a credential or customer-controlled content.
+        """
+        material = step.side_effects in {"local", "external", "destructive"}
+        if not material:
+            return exc, False
+        if isinstance(exc, (NoSideEffectPerformed, ExternalExecutionRequired)):
+            # These are explicit kernel/host signals that dispatch never
+            # happened. Preserve their diagnostic messages.
+            return exc, False
+        if isinstance(exc, (
+            SideEffectOutcomeUnknown, ProviderEvidenceConflict,
+            ReconciliationRequired, IntegrityError, ProviderRefusal,
+        )):
+            # Already classified or non-retryable; do not discard evidence.
+            return exc, True
+        return SideEffectOutcomeUnknown(
+            f"{type(exc).__name__}: material outcome unconfirmed; reconcile before retry"
+        ), True
 
     async def _execute_with_retry(self, step, plan, state, store, budget: BudgetController):
         attempts = max(1, step.retry.max_attempts)
@@ -834,16 +864,12 @@ class Runner:
                 last = SideEffectOutcomeUnknown(str(exc)) if material else exc
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
-                last = exc
-                material_conflict = (
-                    isinstance(exc, ProviderEvidenceConflict)
-                    and step.side_effects in {"local", "external", "destructive"}
-                )
+                last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(
-                    invocation, state, store, error=exc, uncertain=material_conflict
+                    invocation, state, store, error=last, uncertain=uncertain
                 )
-                self._emit(store, state, "step.attempt_failed", step.id, attempt=attempt, error=str(exc))
-            if attempt >= attempts or not self._should_retry(step, last):
+                self._emit(store, state, "step.attempt_failed", step.id, attempt=attempt, error=str(last))
+            if attempt >= attempts or not self._should_retry(step, last, resolved_key=ss.idempotency_key):
                 break
             delay = min(
                 step.retry.backoff_seconds * (step.retry.backoff_multiplier ** (attempt - 1)),
@@ -1501,16 +1527,12 @@ class Runner:
                 last = SideEffectOutcomeUnknown(str(exc)) if material else exc
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
-                last = exc
-                material_conflict = (
-                    isinstance(exc, ProviderEvidenceConflict)
-                    and step.side_effects in {"local", "external", "destructive"}
-                )
+                last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(
-                    invocation, state, store, error=exc, uncertain=material_conflict
+                    invocation, state, store, error=last, uncertain=uncertain
                 )
             self._emit(store, state, "foreach.step.attempt_failed", nested_key, parent=parent.id, index=index, attempt=attempt, error=str(last))
-            if attempt >= attempts or not self._should_retry(step, last):
+            if attempt >= attempts or not self._should_retry(step, last, resolved_key=local_state.idempotency_key):
                 break
             delay = min(
                 step.retry.backoff_seconds * (step.retry.backoff_multiplier ** (attempt - 1)),
@@ -1810,19 +1832,15 @@ class Runner:
                 last = SideEffectOutcomeUnknown(str(exc)) if material else exc
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
-                last = exc
-                material_conflict = (
-                    isinstance(exc, ProviderEvidenceConflict)
-                    and step.side_effects in {"local", "external", "destructive"}
-                )
+                last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(
-                    invocation, state, store, error=exc, uncertain=material_conflict
+                    invocation, state, store, error=last, uncertain=uncertain
                 )
             self._emit(
                 store, state, "while.step.attempt_failed", nested_key,
                 parent=parent.id, iteration=iteration, attempt=attempt, error=str(last),
             )
-            if attempt >= attempts or not self._should_retry(step, last):
+            if attempt >= attempts or not self._should_retry(step, last, resolved_key=local_state.idempotency_key):
                 break
             delay = min(
                 step.retry.backoff_seconds * (step.retry.backoff_multiplier ** (attempt - 1)),
@@ -2086,16 +2104,12 @@ class Runner:
                 last = SideEffectOutcomeUnknown(str(exc)) if material else exc
                 self._finish_invocation(invocation, state, store, error=last, uncertain=material)
             except Exception as exc:
-                last = exc
-                material_conflict = (
-                    isinstance(exc, ProviderEvidenceConflict)
-                    and step.side_effects in {"local", "external", "destructive"}
-                )
+                last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(
-                    invocation, state, store, error=exc, uncertain=material_conflict
+                    invocation, state, store, error=last, uncertain=uncertain
                 )
             self._emit(store, state, "parallel.step.attempt_failed", nested_key, parent=parent_id, branch=branch, attempt=attempt, error=str(last))
-            if attempt >= attempts or not self._should_retry(step, last):
+            if attempt >= attempts or not self._should_retry(step, last, resolved_key=local_state.idempotency_key):
                 break
             delay = min(
                 step.retry.backoff_seconds * (step.retry.backoff_multiplier ** (attempt - 1)),

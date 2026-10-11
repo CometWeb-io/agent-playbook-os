@@ -4,7 +4,7 @@ import pytest
 
 from agent_playbook_os.compiler import Compiler
 from agent_playbook_os.engine import Runner
-from agent_playbook_os.errors import CompileError, IntegrityError, StepExecutionError
+from agent_playbook_os.errors import CompileError, IntegrityError, SideEffectOutcomeUnknown, StepExecutionError
 from agent_playbook_os.models import Playbook, RunStatus, RuntimeResult, UsageMetrics
 from agent_playbook_os.runtime import MockRuntime, ReferenceRuntime
 from agent_playbook_os.store import RunStore
@@ -53,7 +53,10 @@ async def test_retry_uses_stable_idempotency_key(tmp_path):
         inputs={"key": {"type": "string", "required": True}},
         policy={"require_approval_for": []},
     )
-    runtime = MockRuntime(action_outputs={"write": [ValueError("transient"), {"ok": True}]})
+    runtime = MockRuntime(
+        action_outputs={"write": [SideEffectOutcomeUnknown("ack lost"), {"ok": True}]},
+        idempotent_steps={"write"},
+    )
     state = await Runner(runtime).run(Compiler().compile(pb, {"key": "stable-123"}), tmp_path / "run")
     assert state.status == RunStatus.COMPLETED
     controls = [c[3] for c in runtime.calls if c[1] == "write"]
