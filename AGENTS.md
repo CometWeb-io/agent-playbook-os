@@ -51,3 +51,8 @@ Do not claim that passing structural tests proves factual correctness of externa
 34. never fingerprint only redacted sensitive cassette inputs; bind them with keyed secret-aware HMAC;
 35. legacy replay with secrets must fail closed, even if the cassette body itself is authenticated;
 36. never persist raw secret input values, key material or unbounded repr() strings in recordings.
+
+37. manual operator reconciliation must acquire the same run lease as the Runner;
+38. SQLite operator mutation must commit state and audit event atomically;
+39. reject conflicting receipt identities and redact reconciliation notes/CLI results;
+40. do not infer real-world external success from a manually reconciled state alone.
