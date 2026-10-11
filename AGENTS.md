@@ -70,3 +70,7 @@ Do not claim that passing structural tests proves factual correctness of externa
 49. NoSideEffectPerformed requires host-side authoritative proof; never infer it from HTTP/network exception type;
 50. idempotent retries of unknown material outcomes require a NONEMPTY resolved key and an adapter that proves deduplication;
 51. avoid persisting raw provider exception text in material failure events and operator logs.
+
+52. material invocation retry eligibility is a durable pre-dispatch property; never reconstruct it from an idempotency key alone;
+53. provider continuations, receipt conflicts, cancelled or exhausted attempts must require operator reconciliation;
+54. legacy invocation snapshots missing retry_eligible default to manual recovery, not implicit authorization.

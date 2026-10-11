@@ -277,6 +277,14 @@ class Runner:
             kind=step.type,
             side_effects=step.side_effects,
             idempotency_key=step_state.idempotency_key,
+            retry_eligible=bool(
+                step_state.idempotency_key
+                and self._runtime_supports_idempotency(step)
+                and (
+                    not step.retry.retry_on
+                    or "SideEffectOutcomeUnknown" in step.retry.retry_on
+                )
+            ),
         )
         state.invocations.append(record)
         step_state.invocation_ids.append(record.invocation_id)
@@ -301,13 +309,22 @@ class Runner:
         if uncertain or isinstance(error, SideEffectOutcomeUnknown):
             record.status = InvocationStatus.UNKNOWN
             record.error = redact(str(error)) if error is not None else "outcome unknown"
+            # Provider continuations, model refusals, evidence conflicts,
+            # cancellation, budget and integrity errors require explicit
+            # reconciliation even when the adapter declares idempotency.
+            record.retry_eligible = bool(
+                record.retry_eligible and isinstance(error, SideEffectOutcomeUnknown)
+            )
         elif cancelled:
             record.status = InvocationStatus.CANCELLED
+            record.retry_eligible = False
         elif error is not None:
             record.status = InvocationStatus.FAILED
             record.error = redact(str(error))
+            record.retry_eligible = False
         else:
             record.status = InvocationStatus.SUCCEEDED
+            record.retry_eligible = False
             record.result_hash = canonical_hash(redact(output))
         store.save_state(state)
         self._emit(
@@ -374,7 +391,21 @@ class Runner:
         ]
         for inv in uncertain:
             step = self._step_for_invocation(plan, inv.step_id)
-            if step is not None and inv.idempotency_key and self._runtime_supports_idempotency(step):
+            if (
+                step is not None
+                and inv.retry_eligible
+                and inv.idempotency_key
+                and self._runtime_supports_idempotency(step)
+                and (
+                    not step.retry.retry_on
+                    or "SideEffectOutcomeUnknown" in step.retry.retry_on
+                )
+                and (
+                    (state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)) is not None
+                    and (state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)).attempts
+                    < step.retry.max_attempts
+                )
+            ):
                 inv.status = InvocationStatus.RECONCILED
                 inv.finished_at = now()
                 inv.reconciliation_note = "auto: adapter-proven idempotent retry"
@@ -861,8 +892,8 @@ class Runner:
                 # its response still needs a tool result or continuation.
                 # Material side effects MUST remain UNKNOWN and reconciled.
                 material = step.side_effects in {"local", "external", "destructive"}
-                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
-                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
+                last = exc
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
             except Exception as exc:
                 last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(
@@ -1524,8 +1555,8 @@ class Runner:
                 # its response still needs a tool result or continuation.
                 # Material side effects MUST remain UNKNOWN and reconciled.
                 material = step.side_effects in {"local", "external", "destructive"}
-                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
-                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
+                last = exc
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
             except Exception as exc:
                 last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(
@@ -1829,8 +1860,8 @@ class Runner:
                 # its response still needs a tool result or continuation.
                 # Material side effects MUST remain UNKNOWN and reconciled.
                 material = step.side_effects in {"local", "external", "destructive"}
-                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
-                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
+                last = exc
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
             except Exception as exc:
                 last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(
@@ -2101,8 +2132,8 @@ class Runner:
                 # its response still needs a tool result or continuation.
                 # Material side effects MUST remain UNKNOWN and reconciled.
                 material = step.side_effects in {"local", "external", "destructive"}
-                last = SideEffectOutcomeUnknown(str(exc)) if material else exc
-                self._finish_invocation(invocation, state, store, error=last, uncertain=material)
+                last = exc
+                self._finish_invocation(invocation, state, store, error=exc, uncertain=material)
             except Exception as exc:
                 last, uncertain = self._material_exception(step, exc)
                 self._finish_invocation(

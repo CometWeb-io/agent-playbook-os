@@ -528,3 +528,43 @@ idempotency is paired with a nonempty *resolved* key.
 an arbitrary material exception must now raise an explicit classified
 error or perform authoritative reconciliation. This is an intentional
 fail-closed safety tightening.
+
+## Explicit durable retry eligibility during resume (11 October 2026)
+
+A configured idempotency key alone is **not** proof that a previously
+uncertain provider operation can be restarted. In the prior reference
+recovery gate, every `UNKNOWN` or `STARTED` material invocation with
+an idempotency key could be auto-reconciled when its adapter reported
+idempotency. This accidentally included terminal provider continuations,
+contradictory receipt evidence and other failures requiring a manual review.
+
+Each `InvocationRecord` now has optional `retry_eligible: bool`,
+initially `false` for legacy v5 snapshots. Before a newly dispatched
+invocation, the Runner records `true` **only** if a nonempty resolved
+key exists, the runtime declares provider-side idempotency and any
+explicit `retry_on` permits `SideEffectOutcomeUnknown`. This is a
+durable pre-dispatch decision, not a reconstruction from untrusted
+error messages.
+
+When an invocation becomes `UNKNOWN`, eligibility survives only for
+`SideEffectOutcomeUnknown`, not for evidence conflicts,
+`ProviderContinuationRequired`, refusal, budget/integrity failures
+or cancellation. `SUCCEEDED`/`FAILED`/`CANCELLED` invocations
+clear eligibility. During `resume`, the gate checks all of:
+
+- the stored `retry_eligible` flag;
+- the actual nonempty key, and current runtime's idempotency support;
+- an explicit `retry_on` filter, if supplied;
+- **remaining** `retry.max_attempts` capacity for that step.
+
+If any requirement is absent, the caller must reconcile through an
+operator. Old snapshots have no flag, so they fail closed rather than
+retroactively acquiring authority. A provider response requiring tool
+handoff or native continuation is left in `UNKNOWN`, with the original
+typed continuation error and **without** blind re-dispatch.
+
+The `InvocationRecord` and `RunState` JSON Schemas include this
+optional boolean, leaving old snapshots valid. These changes tighten
+the reference engine's safety; they do not authenticate the adapter,
+prove real provider-side deduplication or establish exactly-once
+semantics in distributed production.

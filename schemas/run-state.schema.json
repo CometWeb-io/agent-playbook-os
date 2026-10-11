@@ -199,6 +199,11 @@
           "default": null,
           "title": "Idempotency Key"
         },
+        "retry_eligible": {
+          "default": false,
+          "title": "Retry Eligible",
+          "type": "boolean"
+        },
         "status": {
           "$ref": "#/$defs/InvocationStatus",
           "default": "STARTED"

@@ -63,3 +63,13 @@ signals are based on authoritative non-execution evidence, and that
 the actual nonempty rendered key. Network errors must remain ambiguous
 unless independently reconciled. The new local regression cases are not
 a substitute for provider-native chaos and live idempotency tests.
+
+### Resume retry eligibility (11 October 2026)
+
+Before deploying a host adapter, verify that it honors durable
+`retry_eligible`, never treats a provider tool-continuation request
+as a retryable ordinary error, and enforces the remaining step retry
+budget after a worker restart. Previously persisted records without
+this optional field are not auto-retried. The reference tests verify
+these guardrails locally; live idempotency and external outcome
+reconciliation remain required.
