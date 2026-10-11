@@ -12,7 +12,7 @@ import jsonschema
 from .budgets import BudgetController
 from .compiler import Compiler
 from .errors import (
-    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
+    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ReconciliationRequired, SideEffectOutcomeUnknown, StepExecutionError
 )
 from .expressions import render, safe_eval
 from .integrity import compiled_plan_integrity
@@ -632,7 +632,7 @@ class Runner:
             setattr(step_state.usage, field, getattr(step_state.usage, field) + 1)
 
     def _should_retry(self, step: StepSpec, exc: Exception) -> bool:
-        if isinstance(exc, (BudgetExceeded, IntegrityError, CancellationRequested, LeaseConflict, ReconciliationRequired)):
+        if isinstance(exc, (BudgetExceeded, IntegrityError, CancellationRequested, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ReconciliationRequired)):
             return False
         if isinstance(exc, SideEffectOutcomeUnknown):
             return bool(step.idempotency_key and self._runtime_supports_idempotency(step))
