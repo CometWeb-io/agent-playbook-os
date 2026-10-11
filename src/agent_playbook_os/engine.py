@@ -407,6 +407,21 @@ class Runner:
             if not ok:
                 raise IntegrityError(f"cannot resume tampered state: {error}")
             state = store.load_state()
+            stored_plan = store.load_plan()
+            if stored_plan.integrity_hash != plan.integrity_hash:
+                raise StepExecutionError("stored run plan differs from requested plan")
+            if (
+                state.plan_hash != plan.integrity_hash
+                or state.plan_semantic_hash != plan.semantic_hash
+                or state.playbook_hash != plan.playbook_hash
+            ):
+                raise IntegrityError("run state hashes do not match compiled plan")
+            if state.status in {RunStatus.COMPLETED, RunStatus.CANCELLED}:
+                raise StepExecutionError(f"cannot resume terminal run: {state.status.value}")
+            # No resume-time event may be written before the durable sequence
+            # cursor is recovered. This includes auto-reconciliation and drift.
+            existing = store.read_events()
+            self._seq = max((e.get("seq", 0) for e in existing), default=0)
             current_caps = self._runtime_capabilities_hash()
             if state.runtime_capabilities_hash and current_caps and state.runtime_capabilities_hash != current_caps:
                 if not allow_runtime_change:
@@ -420,19 +435,6 @@ class Runner:
             elif state.runtime_capabilities_hash is None:
                 state.runtime_capabilities_hash = current_caps
             self._reconcile_uncertain_invocations_for_resume(state, plan, store)
-            stored_plan = store.load_plan()
-            if stored_plan.integrity_hash != plan.integrity_hash:
-                raise StepExecutionError("stored run plan differs from requested plan")
-            if (
-                state.plan_hash != plan.integrity_hash
-                or state.plan_semantic_hash != plan.semantic_hash
-                or state.playbook_hash != plan.playbook_hash
-            ):
-                raise IntegrityError("run state hashes do not match compiled plan")
-            if state.status in {RunStatus.COMPLETED, RunStatus.CANCELLED}:
-                raise StepExecutionError(f"cannot resume terminal run: {state.status.value}")
-            existing = store.read_events()
-            self._seq = max((e.get("seq", 0) for e in existing), default=0)
             self._emit(store, state, "run.resumed", approvals=sorted(approvals))
         else:
             if store.has_any_run_data():
@@ -565,12 +567,12 @@ class Runner:
             except Exception as exc:
                 ss.error = f"{type(exc).__name__}: {exc}"
                 ss.finished_at = now()
-                if step.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError)):
+                if step.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     ss.status = StepStatus.SKIPPED
                     self._emit(store, state, "step.skipped", step.id, reason=ss.error)
                     store.save_state(state)
                     continue
-                if step.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError)):
+                if step.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     ss.status = StepStatus.FAILED
                     self._emit(store, state, "step.failed_continued", step.id, error=ss.error)
                     store.save_state(state)
@@ -1019,13 +1021,13 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip":
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
                     self._emit(store, state, "foreach.step.skipped", key, parent=parent.id, index=index, reason=err)
                     continue
-                if nested.on_fail == "continue":
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1288,7 +1290,7 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip":
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1297,7 +1299,7 @@ class Runner:
                         parent=parent.id, iteration=iteration, reason=err,
                     )
                     continue
-                if nested.on_fail == "continue":
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1566,13 +1568,13 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip":
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
                     self._emit(store, state, "parallel.step.skipped", key, parent=parent.id, branch=branch, reason=err)
                     continue
-                if nested.on_fail == "continue":
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
