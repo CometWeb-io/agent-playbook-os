@@ -60,3 +60,8 @@ Do not claim that passing structural tests proves factual correctness of externa
 41. receipt, artifact and evidence IDs are immutable within a run; conflicting duplicates fail closed;
 42. if conflicting evidence arrives after material dispatch, journal UNKNOWN rather than retrying automatically;
 43. provider-native receipt status transitions require versioned IDs or an explicitly governed update contract.
+
+44. a SUCCEEDED material invocation without a completed step checkpoint is unsafe to redispatch;
+45. manual reconciliation of SUCCEEDED evidence must match its original result digest;
+46. never let on_fail skip/continue suppress post-dispatch material schema failures;
+47. resumed completed outputs (including nested) must still satisfy pinned schemas.

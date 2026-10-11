@@ -33,6 +33,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Preserve the distinction between a legitimate JSON null result and no
+# operator-supplied evidence. A successful external invocation may return null.
+_OUTPUT_UNSET = object()
+
+
 class RunStore:
     backend_id = "filesystem"
 
@@ -447,7 +452,7 @@ class RunStore:
         *,
         outcome: str,
         actor: str = "human",
-        output: Any = None,
+        output: Any = _OUTPUT_UNSET,
         note: str | None = None,
     ) -> RunState:
         if outcome not in {"not-executed", "succeeded"}:
@@ -458,21 +463,48 @@ class RunStore:
             if len(matches) != 1:
                 raise ReconciliationRequired(f"invocation not found: {invocation_id}")
             inv = matches[0]
-            if inv.status not in {InvocationStatus.STARTED, InvocationStatus.UNKNOWN}:
+            # A SUCCEEDED invocation may be orphaned after a crash between
+            # invocation.finished and step.completed. Accept only an operator
+            # completion with the EXACT already-journaled output digest.
+            # Never claim that a previously successful call was not executed.
+            successful_orphan = inv.status == InvocationStatus.SUCCEEDED
+            if inv.status not in {
+                InvocationStatus.STARTED, InvocationStatus.UNKNOWN,
+                InvocationStatus.SUCCEEDED,
+            }:
                 raise ReconciliationRequired(f"invocation is not uncertain: {inv.status.value}")
+            target = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
+            if successful_orphan:
+                if outcome != "succeeded":
+                    raise ReconciliationRequired(
+                        "SUCCEEDED invocation cannot be reconciled as not-executed"
+                    )
+                if target is None or target.status == StepStatus.COMPLETED:
+                    raise ReconciliationRequired(
+                        "SUCCEEDED invocation already has a completed step checkpoint"
+                    )
+                if not inv.result_hash:
+                    raise ReconciliationRequired(
+                        "SUCCEEDED invocation has no result digest to verify"
+                    )
+            if outcome == "succeeded":
+                if output is _OUTPUT_UNSET:
+                    raise ReconciliationRequired("succeeded reconciliation requires output")
+                from .secret_resolver import redact_secret_values
+                output = redact(redact_secret_values(output))
+                candidate_hash = canonical_hash(output)
+                if successful_orphan and candidate_hash != inv.result_hash:
+                    raise ReconciliationRequired(
+                        "operator output does not match the successful invocation result digest"
+                    )
+                if target is None:
+                    raise ReconciliationRequired(f"step state not found for invocation: {inv.step_id}")
             inv.status = InvocationStatus.RECONCILED
             inv.finished_at = _now()
             inv.reconciled_by = actor
             inv.reconciliation_note = redact(note) if note else outcome
             if outcome == "succeeded":
-                if output is None:
-                    raise ReconciliationRequired("succeeded reconciliation requires output")
-                from .secret_resolver import redact_secret_values
-                output = redact(redact_secret_values(output))
-                inv.result_hash = canonical_hash(output)
-                target = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
-                if target is None:
-                    raise ReconciliationRequired(f"step state not found for invocation: {inv.step_id}")
+                inv.result_hash = candidate_hash
                 target.output = output
                 target.status = StepStatus.COMPLETED
                 target.error = None

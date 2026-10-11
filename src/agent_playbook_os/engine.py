@@ -345,6 +345,27 @@ class Runner:
         return None
 
     def _reconcile_uncertain_invocations_for_resume(self, state: RunState, plan, store):
+        # A provider invocation can finish successfully while the Runner dies
+        # before writing step.completed. SUCCEEDED is not an atomic checkpoint
+        # of the step's output/schema/budget processing. If the step was not
+        # durably completed, replaying its material action risks duplication.
+        orphaned_success = []
+        for inv in state.invocations:
+            if (
+                inv.status == InvocationStatus.SUCCEEDED
+                and inv.side_effects in {"local", "external", "destructive"}
+            ):
+                ss = state.steps.get(inv.step_id) or state.nested_steps.get(inv.step_id)
+                if ss is None or ss.status != StepStatus.COMPLETED:
+                    orphaned_success.append(inv)
+        if orphaned_success:
+            details = ", ".join(
+                f"{inv.invocation_id} ({inv.step_id})" for inv in orphaned_success
+            )
+            raise ReconciliationRequired(
+                "material invocation succeeded without a completed step checkpoint: "
+                + details + "; verify its result and reconcile before resume"
+            )
         uncertain = [
             x for x in state.invocations
             if x.status == InvocationStatus.UNKNOWN or (
@@ -529,6 +550,20 @@ class Runner:
             elif state.runtime_capabilities_hash is None:
                 state.runtime_capabilities_hash = current_caps
             self._reconcile_uncertain_invocations_for_resume(state, plan, store)
+            # A manually reconciled successful invocation must not bypass the
+            # output-schema contract when its step is skipped on resume.
+            completed_specs = {x.spec.id: x.spec for x in plan.steps}
+            for key, step_state in state.steps.items():
+                if step_state.status == StepStatus.COMPLETED:
+                    self._validate_output_schema(completed_specs[key], step_state.output, plan)
+            for key, step_state in state.nested_steps.items():
+                if step_state.status == StepStatus.COMPLETED:
+                    nested_spec = self._step_for_invocation(plan, key)
+                    if nested_spec is None:
+                        raise IntegrityError(
+                            f"completed nested step cannot be mapped to compiled plan: {key}"
+                        )
+                    self._validate_output_schema(nested_spec, step_state.output, plan)
             self._emit(store, state, "run.resumed", approvals=sorted(approvals))
         else:
             if store.has_any_run_data():
@@ -628,7 +663,7 @@ class Runner:
                 self._emit(store, state, "step.started", step.id, type=step.type, idempotency_key=ss.idempotency_key, isolation=effective_isolation)
 
                 output = await self._execute_with_retry(step, plan, state, store, budget)
-                self._validate_output_schema(step, output, plan)
+                self._validate_completed_output(step, output, plan)
                 ss.output = output
                 ss.status = StepStatus.COMPLETED
                 ss.error = None
@@ -1011,6 +1046,25 @@ class Runner:
         schema = json.loads(payload.decode("utf-8"))
         validate_output_offline(output, schema)
 
+    def _validate_completed_output(self, step: StepSpec, output, plan) -> None:
+        """Validation failure after dispatch does not undo material effects.
+
+        Skip/continue may be appropriate for pure computations, but cannot
+        certify a material call that already returned from an external host
+        while its output contract failed.
+        """
+        try:
+            self._validate_output_schema(step, output, plan)
+        except (IntegrityError, ReconciliationRequired):
+            raise
+        except Exception as exc:
+            if step.side_effects in {"local", "external", "destructive"}:
+                raise ReconciliationRequired(
+                    f"material step {step.id} returned but its output contract failed; "
+                    "verify the external outcome before any resume"
+                ) from exc
+            raise
+
     def _render_step_params(self, step: StepSpec, context: dict[str, Any]):
         raw = render(step.with_, context)
         if step.type == "playbook":
@@ -1326,7 +1380,7 @@ class Runner:
                 out = await self._execute_foreach_nested_with_retry(
                     nested, plan, state, store, budget, local_state, local, parent, index, item, key
                 )
-                self._validate_output_schema(nested, out, plan)
+                self._validate_completed_output(nested, out, plan)
                 local_state.status = StepStatus.COMPLETED
                 local_state.output = out
                 local_state.error = None
@@ -1612,7 +1666,7 @@ class Runner:
                     nested, plan, state, store, budget, local_state, local,
                     parent, iteration, previous, history, key
                 )
-                self._validate_output_schema(nested, out, plan)
+                self._validate_completed_output(nested, out, plan)
                 local_state.status = StepStatus.COMPLETED
                 local_state.output = out
                 local_state.error = None
@@ -1913,7 +1967,7 @@ class Runner:
                 out = await self._execute_nested_with_retry(
                     nested, plan, state, store, budget, local_state, local, parent.id, branch, key
                 )
-                self._validate_output_schema(nested, out, plan)
+                self._validate_completed_output(nested, out, plan)
                 local_state.status = StepStatus.COMPLETED
                 local_state.output = out
                 local_state.error = None
