@@ -110,3 +110,71 @@ async def test_identical_repeated_receipt_is_idempotent(tmp_path):
     assert len(state.provider_receipts) == 1
     assert state.provider_receipts[0].call_id == "one-native-call"
     assert state.invocations[0].provider_call_id == "one-native-call"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["artifact", "evidence"])
+async def test_mismatched_durable_reference_ids_fail_closed(tmp_path, kind):
+    from agent_playbook_os.models import ArtifactRef, EvidenceRef
+
+    def reference(which):
+        if kind == "artifact":
+            return ArtifactRef(
+                id="stable-content-id", uri=f"memory://{which}",
+                content_hash="sha256:" + ("a" if which == 1 else "b") * 64,
+            )
+        return EvidenceRef(
+            id="stable-content-id", uri=f"memory://{which}",
+            content_hash="sha256:" + ("a" if which == 1 else "b") * 64,
+        )
+
+    async def handler(step, inputs, context):
+        ref = reference(1 if step.id == "first" else 2)
+        return RuntimeResult(
+            value={"ok": True},
+            artifacts=[ref] if kind == "artifact" else [],
+            evidence_refs=[ref] if kind == "evidence" else [],
+        )
+
+    plan = compile_steps([
+        {"id": "first", "type": "action", "action": "remote", "side_effects": "external"},
+        {"id": "second", "type": "action", "action": "remote",
+         "side_effects": "external", "needs": ["first"], "on_fail": "skip"},
+    ])
+    result = await Runner(CallableRuntime(actions={"remote": handler})).run(
+        plan, tmp_path / kind,
+    )
+    assert result.status == RunStatus.FAILED
+    assert result.invocations[-1].status == InvocationStatus.UNKNOWN
+    assert f"conflicting {kind} identity" in result.steps["second"].error
+    actual = result.artifacts if kind == "artifact" else result.evidence_refs
+    assert len(actual) == 1
+    assert actual[0].uri == "memory://1"
+
+
+@pytest.mark.asyncio
+async def test_stream_artifact_collision_does_not_overwrite_first_reference(tmp_path):
+    from agent_playbook_os.models import ArtifactRef
+
+    async def handler(step, inputs, context):
+        async def stream():
+            yield RuntimeStreamEvent(
+                type="artifact", artifact=ArtifactRef(id="repeated", uri="memory://original")
+            )
+            yield RuntimeStreamEvent(
+                type="artifact", artifact=ArtifactRef(id="repeated", uri="memory://forged")
+            )
+            yield RuntimeStreamEvent(type="result", value=42)
+        return stream()
+
+    plan = compile_steps([{
+        "id": "stream", "type": "action", "action": "remote",
+        "side_effects": "external", "on_fail": "continue",
+    }])
+    state = await Runner(CallableRuntime(actions={"remote": handler})).run(
+        plan, tmp_path / "collision",
+    )
+    assert state.status == RunStatus.FAILED
+    assert state.invocations[0].status == InvocationStatus.UNKNOWN
+    assert len(state.artifacts) == 1
+    assert state.artifacts[0].uri == "memory://original"
