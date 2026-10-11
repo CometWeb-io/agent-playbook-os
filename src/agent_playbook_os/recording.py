@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import os
+import hmac
+import hashlib
 from typing import Any
 try:
     import fcntl
@@ -100,7 +102,11 @@ class RecordingRuntime:
         max_record_bytes: int = DEFAULT_MAX_RECORD_BYTES,
         max_stream_events: int = 10_000,
         max_stream_bytes: int = 16_000_000,
+        integrity_key: bytes | None = None,
     ):
+        if integrity_key is not None and (type(integrity_key) is not bytes or len(integrity_key) < 32):
+            raise ValueError("integrity_key must be at least 32 bytes")
+        self.integrity_key = integrity_key
         self.inner = inner
         self.cassette = Path(cassette)
         self.max_cassette_bytes = _positive_limit("max_cassette_bytes", max_cassette_bytes)
@@ -138,13 +144,32 @@ class RecordingRuntime:
                         previous_hash = previous.get("record_hash")
                         if not isinstance(previous_hash, str) or not previous_hash.startswith("sha256:"):
                             raise IntegrityError("cannot append to legacy or unverified cassette")
-                        prior_body = {key: value for key, value in previous.items() if key != "record_hash"}
+                        prior_body = {
+                            key: value for key, value in previous.items()
+                            if key not in {"record_hash", "record_mac"}
+                        }
                         if canonical_hash(prior_body) != previous_hash:
                             raise IntegrityError("existing cassette terminal record has invalid hash")
+                        prior_mac = previous.get("record_mac")
+                        if self.integrity_key is None and prior_mac is not None:
+                            raise IntegrityError("authenticated cassette requires an integrity_key")
+                        if self.integrity_key is not None:
+                            expected_mac = hmac.new(
+                                self.integrity_key, previous_hash.encode("ascii"), hashlib.sha256
+                            ).hexdigest()
+                            if not isinstance(prior_mac, str) or not hmac.compare_digest(
+                                prior_mac, "hmac-sha256:" + expected_mac
+                            ):
+                                raise IntegrityError("existing cassette authentication mismatch")
                     else:
                         previous_hash = None
                     record = {**record, "prev_hash": previous_hash}
                     record["record_hash"] = canonical_hash(record)
+                    if self.integrity_key is not None:
+                        digest = hmac.new(
+                            self.integrity_key, record["record_hash"].encode("ascii"), hashlib.sha256
+                        ).hexdigest()
+                        record["record_mac"] = "hmac-sha256:" + digest
                     encoded = (
                         json.dumps(record, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8")
                         + b"\n"
@@ -218,7 +243,11 @@ class ReplayRuntime:
         max_record_bytes: int = DEFAULT_MAX_RECORD_BYTES,
         max_records: int = DEFAULT_MAX_RECORDS,
         allow_legacy: bool = False,
+        integrity_key: bytes | None = None,
     ):
+        if integrity_key is not None and (type(integrity_key) is not bytes or len(integrity_key) < 32):
+            raise ValueError("integrity_key must be at least 32 bytes")
+        self.integrity_key = integrity_key
         path = Path(cassette)
         self.max_cassette_bytes = _positive_limit("max_cassette_bytes", max_cassette_bytes)
         self.max_record_bytes = _positive_limit("max_record_bytes", max_record_bytes)
@@ -257,9 +286,20 @@ class ReplayRuntime:
                 received_hash = record.get("record_hash")
                 if record.get("prev_hash") != previous_hash:
                     raise IntegrityError("cassette record-chain predecessor mismatch")
-                body = {k: v for k, v in record.items() if k != "record_hash"}
+                body = {k: v for k, v in record.items() if k not in {"record_hash", "record_mac"}}
                 if canonical_hash(body) != received_hash:
                     raise IntegrityError("cassette record hash mismatch")
+                received_mac = record.get("record_mac")
+                if received_mac is not None and self.integrity_key is None:
+                    raise IntegrityError("authenticated cassette requires an integrity_key")
+                if self.integrity_key is not None:
+                    expected_mac = "hmac-sha256:" + hmac.new(
+                        self.integrity_key, received_hash.encode("ascii"), hashlib.sha256
+                    ).hexdigest()
+                    if not isinstance(received_mac, str) or not hmac.compare_digest(
+                        expected_mac, received_mac
+                    ):
+                        raise IntegrityError("cassette authentication mismatch")
                 previous_hash = received_hash
             self.records.append(record)
         self.index = 0
