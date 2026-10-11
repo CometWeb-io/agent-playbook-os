@@ -67,3 +67,15 @@ class PlanApprovalRequired(PlaybookError):
     def __init__(self, plan_semantic_hash: str):
         super().__init__(f"operator-generated ephemeral plan requires approval: {plan_semantic_hash}")
         self.plan_semantic_hash = plan_semantic_hash
+
+
+class ProviderContinuationRequired(StepExecutionError):
+    """A provider returned a nonterminal response or an unhandled tool request.
+
+    The reference adapter cannot safely perform provider-native continuation.
+    Hosts should reconcile/resume using the provider's response identity.
+    """
+
+
+class ProviderRefusal(StepExecutionError):
+    """The model explicitly refused the requested operation."""
