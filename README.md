@@ -648,3 +648,14 @@ See [signed approval grants](docs/SIGNED_APPROVAL_GRANTS.md) for the
 issuer-side API, complete CLI flow, key rotation and threat boundaries. The
 issuer must authenticate the person separately; a signature authenticates
 the grant issuer, not the human session. No IAM backend is implied.
+
+### Secret-aware reproducible replay
+
+Unkeyed record/replay refuses inputs whose redaction would erase sensitive
+information, preventing two different credentials from matching one
+cassette entry. For authenticated secret-aware replay, set a separately
+managed HMAC key via `--cassette-key-env` together with either
+`--record-cassette` or `--replay-cassette`. Raw secret values are never
+written to the cassette input signature or preview, and replay with a
+different secret fails before consuming the next record. See
+[runtime hardening](docs/RUNTIME_HARDENING_2026.md).

@@ -11,12 +11,12 @@ try:
 except ImportError:
     fcntl = None
 
-from .errors import IntegrityError, SideEffectOutcomeUnknown
+from .errors import IntegrityError, SecretResolutionError, SideEffectOutcomeUnknown
 
 from .integrity import canonical_hash
 from .models import RuntimeResult, RuntimeStreamEvent
 from .telemetry import redact
-from .secret_resolver import redact_secret_values
+from .secret_resolver import SecretValue, redact_secret_values
 
 
 def _jsonable(value: Any) -> Any:
@@ -42,6 +42,67 @@ def _jsonable(value: Any) -> Any:
     except TypeError:
         # repr() may expose credentials in custom adapter objects.
         return {"__unsupported_type__": type(value).__name__}
+
+
+_KEYED_INPUT_SCHEME = "hmac-sha256:inputs-v1"
+_REDACTED_INPUT_SCHEME = "sha256:redacted-v1"
+_INPUT_CONTEXT = b"agent-playbook-os/input-fingerprint/v1|"
+
+
+def _contains_secret(value: Any) -> bool:
+    if isinstance(value, SecretValue):
+        return True
+    if type(value) is dict:
+        return any(_contains_secret(key) or _contains_secret(item) for key, item in value.items())
+    if type(value) in {list, tuple}:
+        return any(_contains_secret(item) for item in value)
+    return False
+
+
+def _input_fingerprint_value(value: Any) -> Any:
+    # A keyed digest can safely bind the actual secret bytes while keeping
+    # them out of durable recordings. Include source identity as well.
+    if isinstance(value, SecretValue):
+        return {"__secret_value__": str(value), "__source_ref__": value.source_ref}
+    if type(value) is dict:
+        if any(type(key) is not str for key in value):
+            raise SecretResolutionError("cassette input keys must be strings")
+        return {key: _input_fingerprint_value(item) for key, item in value.items()}
+    if type(value) in {list, tuple}:
+        return [_input_fingerprint_value(item) for item in value]
+    if value is None or type(value) in {str, int, float, bool}:
+        return value
+    raise SecretResolutionError("cassette cannot fingerprint unsupported input type")
+
+
+def _input_signature(kind: str, step_id: str, inputs: Any, integrity_key: bytes | None, *, scheme: str):
+    if scheme == _REDACTED_INPUT_SCHEME:
+        sanitized = redact(inputs)
+        # Even a plain string under an "api_key"/"password" field or a
+        # Bearer header loses its identity when redacted. Such collisions
+        # must not silently reuse an unrelated recorded result.
+        if _contains_secret(inputs) or sanitized != inputs:
+            raise SecretResolutionError(
+                "secret-bearing or lossy-redacted cassette input requires integrity_key; "
+                "redacted inputs cannot distinguish different original values"
+            )
+        return canonical_hash({"kind": kind, "step_id": step_id, "inputs": sanitized})
+    if scheme == _KEYED_INPUT_SCHEME:
+        if integrity_key is None:
+            raise SecretResolutionError("HMAC cassette input signatures require an integrity_key")
+        raw = json.dumps(
+            {
+                "kind": kind, "step_id": step_id,
+                "inputs": _input_fingerprint_value(inputs),
+            },
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        mac = hmac.new(
+            integrity_key, _INPUT_CONTEXT + raw, hashlib.sha256
+        ).hexdigest()
+        return "hmac-sha256:" + mac
+    raise IntegrityError("unknown cassette input signature scheme")
 
 
 def _restore(value: Any) -> Any:
@@ -189,9 +250,14 @@ class RecordingRuntime:
             raise SideEffectOutcomeUnknown("cassette write could not be committed") from exc
 
     async def _call(self, kind, method, step, inputs, context):
+        # Reject unsafe redacted-secret collisions BEFORE calling the provider.
+        scheme = _KEYED_INPUT_SCHEME if self.integrity_key is not None else _REDACTED_INPUT_SCHEME
+        signature = _input_signature(kind, step.id, inputs, self.integrity_key, scheme=scheme)
         safe_inputs = redact(inputs)
-        signature = canonical_hash({"kind": kind, "step_id": step.id, "inputs": safe_inputs})
-        base = {"kind": kind, "step_id": step.id, "signature": signature, "inputs": _jsonable(safe_inputs)}
+        base = {
+            "kind": kind, "step_id": step.id, "signature": signature,
+            "signature_scheme": scheme, "inputs": _jsonable(safe_inputs),
+        }
         try:
             out = await method(step, inputs, context)
         except Exception as exc:
@@ -327,7 +393,13 @@ class ReplayRuntime:
         if self.index >= len(self.records):
             raise RuntimeError("replay cassette exhausted")
         record = self.records[self.index]
-        signature = canonical_hash({"kind": kind, "step_id": step.id, "inputs": redact(inputs)})
+        # Legacy recordings did not identify their signature scheme. Permit
+        # those only for nonsecret inputs. Secret-bearing legacy replay is
+        # ambiguous because multiple distinct credentials redact identically.
+        scheme = record.get("signature_scheme", _REDACTED_INPUT_SCHEME)
+        signature = _input_signature(
+            kind, step.id, inputs, self.integrity_key, scheme=scheme
+        )
         if record.get("kind") != kind or record.get("step_id") != step.id or record.get("signature") != signature:
             raise RuntimeError(
                 f"replay divergence at index={self.index}: expected {record.get('kind')}:{record.get('step_id')}"

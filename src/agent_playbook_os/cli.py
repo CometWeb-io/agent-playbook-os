@@ -95,8 +95,18 @@ def make_runtime(args):
     replay = getattr(args, "replay_cassette", None)
     if record and replay:
         raise SystemExit("--record-cassette and --replay-cassette are mutually exclusive")
+    key_env = getattr(args, "cassette_key_env", None)
+    integrity_key = None
+    if key_env:
+        if not (record or replay):
+            raise SystemExit("--cassette-key-env requires --record-cassette or --replay-cassette")
+        import os
+        secret = os.environ.get(key_env)
+        if not secret or len(secret.encode("utf-8")) < 32:
+            raise SystemExit("cassette signing key is missing or shorter than 32 bytes")
+        integrity_key = secret.encode("utf-8")
     if replay:
-        return ReplayRuntime(replay)
+        return ReplayRuntime(replay, integrity_key=integrity_key)
     runtime = ReferenceRuntime(
         dry_run=getattr(args, "dry_run", False),
         allow_commands=getattr(args, "allow_commands", False),
@@ -104,7 +114,7 @@ def make_runtime(args):
         allowed_commands=set(getattr(args, "allow_command", None) or []),
         max_command_output_bytes=getattr(args, "max_command_output_bytes", 1_000_000),
     )
-    return RecordingRuntime(runtime, record) if record else runtime
+    return RecordingRuntime(runtime, record, integrity_key=integrity_key) if record else runtime
 
 
 def make_telemetry(args):
@@ -1031,6 +1041,7 @@ def add_runtime(p):
     p.add_argument("--approval-actor", default="human")
     p.add_argument("--record-cassette")
     p.add_argument("--replay-cassette")
+    p.add_argument("--cassette-key-env", help="HMAC key environment variable for secret-aware cassette recording/replay")
     p.add_argument("--telemetry-jsonl")
     p.add_argument("--store", choices=["filesystem", "sqlite"], default="filesystem")
     p.add_argument("--file-secret-root", action="append", default=[])

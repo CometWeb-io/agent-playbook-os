@@ -47,3 +47,7 @@ Do not claim that passing structural tests proves factual correctness of externa
 31. never copy signed bearer grants or untrusted queue metadata into durable run outputs or logs;
 32. approval signatures bind destination, work, tenant, exact plan hash and bounded validity window;
 33. distinguish issuer authentication from actual human authentication and one-time authorization.
+
+34. never fingerprint only redacted sensitive cassette inputs; bind them with keyed secret-aware HMAC;
+35. legacy replay with secrets must fail closed, even if the cassette body itself is authenticated;
+36. never persist raw secret input values, key material or unbounded repr() strings in recordings.
