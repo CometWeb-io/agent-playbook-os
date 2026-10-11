@@ -953,6 +953,13 @@
       "title": "Skill Lock",
       "type": "object"
     },
+    "subplaybook_locks": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Subplaybook Locks",
+      "type": "object"
+    },
     "source_path": {
       "anyOf": [
         {

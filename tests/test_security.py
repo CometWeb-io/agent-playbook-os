@@ -68,6 +68,9 @@ async def test_subplaybook_cannot_escape_directory(tmp_path):
     parent.write_text('''apiVersion: playbook.agent/v1alpha1\nkind: Playbook\nmetadata:\n  id: parent\n  version: 0.1.0\n  description: parent\nspec:\n  steps:\n    - id: child\n      type: playbook\n      playbook: ../outside.yaml\n''')
     from agent_playbook_os.loader import load_playbook
     pb = load_playbook(parent)
-    state = await Runner(ReferenceRuntime()).run(Compiler().compile(pb, source_path=str(parent)), tmp_path / "run")
-    assert state.status == RunStatus.FAILED
-    assert "escapes playbook directory" in state.steps["child"].error
+    # A child traversal must be rejected while compiling, before creating
+    # any run data or executing a provider action.
+    from agent_playbook_os.errors import CompileError
+    with pytest.raises(CompileError, match="escapes its parent playbook directory"):
+        Compiler().compile(pb, source_path=str(parent))
+    assert not (tmp_path / "run").exists()

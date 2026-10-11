@@ -102,6 +102,48 @@ class Runner:
         if self._cancellation is not None and self._cancellation.is_cancelled():
             raise CancellationRequested(self._cancellation.reason() or "cancellation requested")
 
+    def _verify_subplaybook_manifest(self, plan) -> None:
+        """Verify all transitively locked children before the first side effect.
+
+        This prevents a changed grandchild from being accepted just because
+        the immediate child's YAML remains unchanged. The direct child is also
+        checked at dispatch, closing the validation-to-use source drift window.
+        """
+        def descendants(steps):
+            for spec in steps:
+                yield spec
+                if spec.type == "parallel":
+                    for branch in spec.branches.values():
+                        yield from descendants(branch)
+                elif spec.type == "foreach":
+                    yield from descendants(spec.foreach_steps)
+                elif spec.type == "while":
+                    yield from descendants(spec.loop_steps)
+
+        if not plan.subplaybook_locks:
+            if any(s.type == "playbook" for s in descendants([x.spec for x in plan.steps])):
+                raise IntegrityError(
+                    "compiled plan contains subplaybooks without dependency locks; "
+                    "recompile and review before execution"
+                )
+            return
+        if not plan.source_path:
+            raise IntegrityError("locked subplaybooks require a source path")
+        base = Path(plan.source_path).resolve().parent
+        for relative, expected in sorted(plan.subplaybook_locks.items()):
+            source = (base / relative).resolve()
+            if not source.is_relative_to(base):
+                raise IntegrityError(f"subplaybook dependency escapes source root: {relative}")
+            try:
+                current = load_playbook(source)
+                current_hash = canonical_hash(current.model_dump(mode="json", by_alias=True))
+            except Exception as exc:
+                raise IntegrityError(f"cannot verify subplaybook dependency {relative}: {exc}") from exc
+            if current_hash != expected:
+                raise IntegrityError(
+                    f"subplaybook dependency changed after plan compilation: {relative}"
+                )
+
     def _runtime_capabilities_hash(self) -> str | None:
         fn = getattr(self.runtime, "capabilities", None)
         if not callable(fn):
@@ -353,6 +395,9 @@ class Runner:
         fork_reason: str | None = None,
         run_metadata: dict[str, Any] | None = None,
     ):
+        if compiled_plan_integrity(plan) != plan.integrity_hash:
+            raise IntegrityError("compiled plan integrity check failed before execution")
+        self._verify_subplaybook_manifest(plan)
         if self.enforce_capabilities:
             report = negotiate_runtime(plan, self.runtime)
             if not report.passed:
@@ -886,6 +931,18 @@ class Runner:
         if not child_path.is_relative_to(base):
             raise StepExecutionError(f"subplaybook path escapes playbook directory: {step.playbook}")
         child_pb = load_playbook(child_path)
+        relative_child = child_path.relative_to(base).as_posix()
+        expected_hash = plan.subplaybook_locks.get(relative_child)
+        if expected_hash is None:
+            raise IntegrityError(
+                f"subplaybook {relative_child} was not locked in the compiled plan; "
+                "recompile and review the playbook before execution"
+            )
+        actual_hash = canonical_hash(child_pb.model_dump(mode="json", by_alias=True))
+        if actual_hash != expected_hash:
+            raise IntegrityError(
+                f"subplaybook {relative_child} changed after plan compilation"
+            )
 
         # Bound the child to the parent's REMAINING available budget, not
         # a fresh, independent allowance for every nested workflow.

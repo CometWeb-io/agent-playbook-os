@@ -529,6 +529,7 @@ class DistributedWorker:
         retry_delay_seconds: float = 0.0,
         strict_capabilities: bool = True,
         policy_resolver: Callable[[WorkItem], Any] | None = None,
+        approval_authorizer: Callable[[WorkItem, CompiledPlan], tuple[set[str], str]] | None = None,
         coordinator: FencingCoordinatorProtocol | None = None,
         fencing_ttl_seconds: float | None = None,
         allowed_run_root: str | Path | None = None,
@@ -551,6 +552,9 @@ class DistributedWorker:
         self.retry_delay_seconds = float(retry_delay_seconds)
         self.strict_capabilities = strict_capabilities
         self.policy_resolver = policy_resolver
+        # Queue fields are caller-supplied and are NOT grants. An approval
+        # must be authorized by a host-owned identity and policy boundary.
+        self.approval_authorizer = approval_authorizer
         self.coordinator = coordinator
         self.fencing_ttl_seconds = float(fencing_ttl_seconds or visibility_timeout_seconds)
         if self.fencing_ttl_seconds <= 0:
@@ -618,6 +622,29 @@ class DistributedWorker:
             if self.policy_resolver is not None:
                 from .policy import assert_plan_satisfies_host_policy
                 assert_plan_satisfies_host_policy(plan, self.policy_resolver(item))
+            approved_steps: set[str] = set()
+            approved_actor = "worker"
+            if self.approval_authorizer is None:
+                if item.approvals:
+                    raise DistributedError(
+                        "queued approvals are untrusted; configure a host-owned approval_authorizer"
+                    )
+            else:
+                grant = self.approval_authorizer(item, plan)
+                if (
+                    not isinstance(grant, tuple) or len(grant) != 2
+                    or not isinstance(grant[0], set)
+                    or not all(isinstance(x, str) and x for x in grant[0])
+                    or not isinstance(grant[1], str) or not grant[1].strip()
+                ):
+                    raise DistributedError(
+                        "approval_authorizer must return (set[str], authenticated_actor)"
+                    )
+                approved_steps, approved_actor = grant
+                # A submitted list may request approval, but cannot cause it:
+                # every requested ID needs an independently validated grant.
+                if not set(item.approvals).issubset(approved_steps):
+                    raise DistributedError("queued approval requests lack host authorization")
             store = open_run_store(item.run_dir, item.store_backend)
             if store.has_state():
                 for verify in (store.verify_event_chain, store.verify_plan_integrity, store.verify_state_integrity):
@@ -652,8 +679,8 @@ class DistributedWorker:
             state = await runner.run(
                 plan,
                 item.run_dir,
-                approvals=set(item.approvals),
-                approval_actor=item.approval_actor,
+                approvals=approved_steps,
+                approval_actor=approved_actor,
                 resume=resume,
                 cancellation_token=cancellation,
                 lease_owner=f"{self.worker_id}:work={item.work_id}:fence={item.fence}",

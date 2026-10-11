@@ -26,6 +26,9 @@ Before modifying the kernel:
 20. review and execute exact immutable plan hashes; do not silently replan on approval;
 21. recording and replay must redact before JSON serialization without corrupting typed usage;
 22. worker recovery must verify tenant, submission, plan, state and event-chain identity.
+23. never trust queue-supplied approval strings or actor claims; require host authority;
+24. pin all transitive child playbook content before plan approval and verify before dispatch;
+25. preserve compiled-plan integrity compatibility when introducing optional manifests.
 
 Run before declaring success:
 

@@ -38,3 +38,17 @@ The comparison command is evidence of structural compatibility only. A real
 release note may claim live provider support only after a host-specific adapter
 smoke and one real golden scenario are recorded with the same skill-library and
 model configuration hashes.
+
+## Subsequent security gate (11 October 2026)
+
+- Worker-queue `approvals` are **requests, not human authorization**; a
+  host-owned `approval_authorizer` is required to grant them. The standalone
+  queue CLI refuses `--approve` rather than assigning fake human authority.
+- Compiled plans lock a bounded transitive graph of child playbook sources.
+  The full graph is verified before creating run data; missing child locks on
+  old plans require explicit recompile and review.
+- Generic and tenant file-secret resolution now uses POSIX no-follow directory
+  handles and fails closed on unsupported platforms.
+- These controls have unit/regression evidence. Identity infrastructure,
+  multi-host production storage, full live-provider adapters, real human
+  authentication and comparative quality evals remain **BLOCKED**.

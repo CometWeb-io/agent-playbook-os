@@ -577,3 +577,21 @@ See [Architecture](docs/architecture/ARCHITECTURE.md), [Threat model](docs/archi
 ## License
 
 MIT. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+### Approval and child-dependency integrity
+
+In distributed execution, human approvals are **not** trusted when supplied as
+ordinary queue fields. Without a host-owned approval authorizer, the worker
+halts at `WAITING_APPROVAL`; `queue enqueue --approve` is rejected.
+Integrating hosts can provide `approval_authorizer(item, plan)`, returning
+an independently verified set of approval IDs and authenticated actor.
+
+At compile time the engine pins the SHA-256 content hashes of all reachable
+subplaybook files to `CompiledPlan.subplaybook_locks`. Changes to any nested
+source before execution cause a fail-closed integrity error; recompile and
+review after intentional changes. Existing compiled plans without children
+retain their previous hashes, while legacy plans containing unpinned children
+must be recompiled before execution.
+
+Secure file-backed secrets currently require POSIX no-follow file handles.
+See [runtime hardening](docs/RUNTIME_HARDENING_2026.md) for limits and tests.
