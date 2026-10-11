@@ -333,3 +333,31 @@ async def test_provider_adapter_rejects_incomplete_responses():
         await OpenAIResponsesRuntime(openai_client, model="demo").execute_agent(step, {}, {})
     with pytest.raises(Exception, match="requires continuation"):
         await AnthropicMessagesRuntime(anthropic_client, model="demo").execute_agent(step, {}, {})
+
+
+@pytest.mark.parametrize("status, expected", [
+    ("COMPLETED", "COMPLETED"),
+    ("FAILED", "FAILED"),
+    ("CANCELLED", "CANCELLED"),
+    ("WAITING_APPROVAL", "WAITING_APPROVAL"),
+    ("WAITING_INPUT", "WAITING_APPROVAL"),
+])
+def test_queue_ack_reflects_actual_run_outcome(tmp_path, status, expected):
+    q = SQLiteWorkQueue(tmp_path / "queue.sqlite3")
+    q.enqueue(_submission(260))
+    claim = q.claim(worker_id="w", capabilities={"action:set"})
+    assert claim is not None
+    item = q.ack(claim.work_id, claim.claim_token, claim.fence, {"status": status})
+    assert item.status == expected
+    assert q.get(item.work_id).status == expected
+    assert q.claim(worker_id="w", capabilities={"action:set"}) is None
+
+
+def test_queue_ack_rejects_unknown_run_status(tmp_path):
+    q = SQLiteWorkQueue(tmp_path / "queue.sqlite3")
+    q.enqueue(_submission(260))
+    claim = q.claim(worker_id="w", capabilities={"action:set"})
+    assert claim is not None
+    with pytest.raises(ValueError, match="nonterminal"):
+        q.ack(claim.work_id, claim.claim_token, claim.fence, {"status": "RUNNING"})
+    assert q.get(claim.work_id).status == "CLAIMED"
