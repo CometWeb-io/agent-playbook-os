@@ -346,3 +346,35 @@ authenticate/authorize human sessions before signing; retries of the same
 work ID can reuse its unexpired grant. External IAM, key custody and
 anti-replay ledger remain release gates. See
 [signed approval grants](SIGNED_APPROVAL_GRANTS.md).
+
+## Secret-safe cassette input identity
+
+Ordinary unkeyed recording signatures historically hashed only redacted
+inputs. Different secrets such as `SecretValue("a")` and `SecretValue("b")`
+both became the same placeholder; replay could therefore match the wrong
+invocation. Plain `password`, `api_key` and Bearer-header strings had the
+same collision problem whenever redaction removed information.
+
+The recorder now **rejects any lossily redacted input before dispatch** unless
+a secret `integrity_key` of at least 32 bytes is configured. In keyed mode,
+the invocation signature is HMAC-SHA256 over a domain-separated canonical
+input that includes actual secret bytes and the `SecretValue.source_ref`.
+Only the HMAC fingerprint and redacted inputs are persisted — never the
+original values. Replay requires the same key, and different secrets,
+references or ordinary password values no longer match.
+
+Older recordings with no `signature_scheme` retain compatibility only
+for inputs whose redaction is lossless; legacy replay involving a secret
+is refused because its input identity cannot be recovered safely.
+
+The standard CLI can opt into keyed cassettes using
+`--record-cassette path --cassette-key-env APBOS_CASSETTE_KEY` or
+`--replay-cassette path --cassette-key-env APBOS_CASSETTE_KEY`.
+The key must exist in the worker's environment and **must not** be stored
+with the cassette or playbook. SDK users pass `integrity_key` directly
+to `RecordingRuntime`/`ReplayRuntime`.
+
+Limits: this only detects values redacted by the built-in markers/rules.
+An unmarked plaintext secret in an ordinary field may still be recorded
+by custom adapters. Hosts must enforce secret classification, key custody,
+output-data minimization and log/retention rules.
