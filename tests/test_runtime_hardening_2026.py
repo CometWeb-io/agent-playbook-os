@@ -449,7 +449,7 @@ async def test_provider_continuation_must_not_be_retried_blindly(tmp_path):
     client = SimpleNamespace(responses=SimpleNamespace(create=create))
     plan = Compiler().compile(pb([{
         "id": "agent", "type": "agent",
-        "retry": {"max_attempts": 3}, "on_fail": "stop"
+        "retry": {"max_attempts": 2}, "on_fail": "stop"
     }]))
     result = await Runner(OpenAIResponsesRuntime(client, model="demo")).run(plan, tmp_path / "run")
     assert result.status == RunStatus.FAILED
