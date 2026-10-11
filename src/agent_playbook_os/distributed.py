@@ -289,7 +289,7 @@ class SQLiteWorkQueue:
 
     def _reclaim_expired(self, con: sqlite3.Connection, now: float) -> None:
         rows = con.execute(
-            "SELECT work_id, attempts, max_attempts, heartbeat_at, claimed_at, visibility_timeout_seconds "
+            "SELECT work_id, attempts, max_attempts, heartbeat_at, claimed_at, visibility_timeout_seconds, cancel_requested "
             "FROM work_items WHERE status=?",
             (WorkStatus.CLAIMED,),
         ).fetchall()
@@ -298,7 +298,10 @@ class SQLiteWorkQueue:
             timeout = row["visibility_timeout_seconds"] or 30.0
             if heartbeat + timeout > now:
                 continue
-            status = WorkStatus.DEAD if row["attempts"] >= row["max_attempts"] else WorkStatus.PENDING
+            status = (
+                WorkStatus.CANCELLED if row["cancel_requested"] else
+                WorkStatus.DEAD if row["attempts"] >= row["max_attempts"] else WorkStatus.PENDING
+            )
             con.execute(
                 "UPDATE work_items SET status=?, claim_token=NULL, claimed_by=NULL, claimed_at=NULL, heartbeat_at=NULL, "
                 "visibility_timeout_seconds=NULL, available_at=?, error=?, updated_at=? WHERE work_id=?",
@@ -329,23 +332,31 @@ class SQLiteWorkQueue:
             if namespace is not None:
                 where.append("namespace=?")
                 params.append(namespace)
-            rows = con.execute(
-                "SELECT * FROM work_items WHERE " + " AND ".join(where) + " ORDER BY created_at, work_id LIMIT 256",
-                tuple(params),
-            ).fetchall()
             chosen = None
-            for row in rows:
-                required = set(json.loads(row["required_capabilities"]))
-                if _requirements_satisfied(required, capabilities):
-                    chosen = row
+            # A fixed first-page limit can permanently starve a capable worker
+            # when earlier queued items require other capabilities.
+            offset = 0
+            while chosen is None:
+                rows = con.execute(
+                    "SELECT * FROM work_items WHERE " + " AND ".join(where) +
+                    " ORDER BY created_at, work_id LIMIT 256 OFFSET ?",
+                    (*params, offset),
+                ).fetchall()
+                if not rows:
                     break
+                for row in rows:
+                    required = set(json.loads(row["required_capabilities"]))
+                    if _requirements_satisfied(required, capabilities):
+                        chosen = row
+                        break
+                offset += len(rows)
             if chosen is None:
                 con.commit()
                 return None
             claim_token = str(uuid4())
             fence = int(chosen["fence"]) + 1
             attempts = int(chosen["attempts"]) + 1
-            con.execute(
+            cursor = con.execute(
                 "UPDATE work_items SET status=?,attempts=?,claim_token=?,fence=?,claimed_by=?,claimed_at=?,heartbeat_at=?,"
                 "visibility_timeout_seconds=?,updated_at=? WHERE work_id=? AND status=?",
                 (
@@ -353,7 +364,7 @@ class SQLiteWorkQueue:
                     _now_iso(),chosen["work_id"],WorkStatus.PENDING,
                 ),
             )
-            if con.total_changes < 1:
+            if cursor.rowcount != 1:
                 con.rollback()
                 return None
             row = con.execute("SELECT * FROM work_items WHERE work_id=?", (chosen["work_id"],)).fetchone()
@@ -366,6 +377,12 @@ class SQLiteWorkQueue:
             raise ClaimLost(f"work item not found: {work_id}")
         if row["status"] != WorkStatus.CLAIMED or row["claim_token"] != claim_token or int(row["fence"]) != int(fence):
             raise ClaimLost(f"claim lost or fenced out for work_id={work_id}")
+        heartbeat = row["heartbeat_at"] or row["claimed_at"]
+        ttl = row["visibility_timeout_seconds"]
+        if heartbeat is None or ttl is None or float(heartbeat) + float(ttl) <= _now_ts():
+            raise ClaimLost(f"claim visibility lease expired for work_id={work_id}")
+        if row["cancel_requested"]:
+            raise ClaimLost(f"work item cancellation requested: {work_id}")
         return row
 
     def heartbeat(self, work_id: str, claim_token: str, fence: int) -> WorkItem:
