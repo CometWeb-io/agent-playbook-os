@@ -219,3 +219,91 @@ async def test_forged_grant_causes_no_execution_and_no_run_state(tmp_path):
     assert result.error is not None and "signature mismatch" in result.error
     assert queue.get(request.work_id).status == WorkStatus.PENDING
     assert not (run_dir / "state.json").exists()
+
+
+def test_queue_cli_requires_immutable_work_identity_for_signed_grants(tmp_path):
+    from agent_playbook_os.cli import build_parser, cmd_queue_enqueue
+    compiled_plan = compiled()
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(compiled_plan.model_dump_json(), encoding="utf-8")
+    signed_path = tmp_path / "grant.json"
+    signed_path.write_text("{}", encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args([
+        "queue", "enqueue", str(plan_path), "--queue-db", str(tmp_path / "q.db"),
+        "--approval-grant-file", str(signed_path),
+    ])
+    with pytest.raises(SystemExit, match="explicit --work-id and --run-id"):
+        cmd_queue_enqueue(args)
+
+
+@pytest.mark.asyncio
+async def test_cli_accepts_host_issued_grant_and_worker_verifies_from_key_env(
+    tmp_path, monkeypatch, capsys,
+):
+    import json
+    from agent_playbook_os.cli import build_parser, cmd_queue_enqueue, cmd_worker_once_async
+
+    plan = compiled()
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(plan.model_dump_json(), encoding="utf-8")
+    queue_path = tmp_path / "queue.db"
+    run_root = tmp_path / "runs"
+    request = submission()
+    grant = HMACApprovalAuthorizer(
+        {"primary": KEY_A}, audience="prod", clock_skew_seconds=0,
+    ).issue(
+        request, plan, approved_step_ids={"review"},
+        actor="reviewer-verified-by-host", issuer="operator-service",
+        key_id="primary",
+    )
+    grant_path = tmp_path / "grant.json"
+    grant_path.write_text(json.dumps(grant), encoding="utf-8")
+    parser = build_parser()
+    enqueue = parser.parse_args([
+        "queue", "enqueue", str(plan_path),
+        "--queue-db", str(queue_path),
+        "--queue-name", "priority",
+        "--tenant", "acme", "--namespace", "production",
+        "--run-root", str(run_root), "--run-id", "run-123",
+        "--work-id", "work-123", "--approval-grant-file", str(grant_path),
+    ])
+    cmd_queue_enqueue(enqueue)
+    capsys.readouterr()
+    monkeypatch.setenv("APBOS_TEST_GRANT_KEY", "K" * 32)
+    worker = parser.parse_args([
+        "worker", "once", "--queue-db", str(queue_path),
+        "--queue-name", "priority",
+        "--approval-key-env", "APBOS_TEST_GRANT_KEY",
+        "--approval-audience", "prod",
+        "--allowed-plan-root", str(tmp_path),
+        "--allowed-run-root", str(run_root),
+    ])
+    await cmd_worker_once_async(worker)
+    capsys.readouterr()
+    item = SQLiteWorkQueue(queue_path).get("work-123")
+    assert item.status == WorkStatus.COMPLETED
+    state = RunStore(run_root / "acme" / "production" / "run-123").load_state()
+    assert state.status == RunStatus.COMPLETED
+    assert len(state.approvals) == 1
+    assert state.approvals[0].actor == "reviewer-verified-by-host"
+
+
+def test_signed_enqueue_refuses_altered_submission_scope(tmp_path):
+    import json
+    from agent_playbook_os.cli import build_parser, cmd_queue_enqueue
+    plan = compiled()
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(plan.model_dump_json(), encoding="utf-8")
+    grant_path = tmp_path / "grant.json"
+    grant_path.write_text(json.dumps(signed_payload()), encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args([
+        "queue", "enqueue", str(plan_path),
+        "--queue-db", str(tmp_path / "q.db"), "--queue-name", "priority",
+        "--tenant", "acme", "--namespace", "production",
+        "--run-id", "run-123", "--work-id", "other-work",
+        "--approval-grant-file", str(grant_path),
+    ])
+    with pytest.raises(SystemExit, match="scope differs from submission: work_id"):
+        cmd_queue_enqueue(args)
