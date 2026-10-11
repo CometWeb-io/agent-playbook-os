@@ -106,6 +106,10 @@ def test_signed_fields_reject_modification(tamper):
     ({"namespace": "staging"}, "namespace"),
     ({"queue_name": "other"}, "queue_name"),
     ({"approvals": ["other"]}, "approved steps"),
+    ({"plan_path": "replacement-plan"}, "plan_path"),
+    ({"run_dir": "another-run-directory"}, "run_dir"),
+    ({"store_backend": "sqlite"}, "store_backend"),
+    ({"max_attempts": 9}, "max_attempts"),
 ])
 def test_replay_into_different_work_scope_fails(change, expected):
     grant = signed_payload()
@@ -249,7 +253,10 @@ async def test_cli_accepts_host_issued_grant_and_worker_verifies_from_key_env(
     plan_path.write_text(plan.model_dump_json(), encoding="utf-8")
     queue_path = tmp_path / "queue.db"
     run_root = tmp_path / "runs"
-    request = submission()
+    request = submission(
+        plan_path=str(plan_path),
+        run_dir=str(run_root / "acme" / "production" / "run-123"),
+    )
     grant = HMACApprovalAuthorizer(
         {"primary": KEY_A}, audience="prod", clock_skew_seconds=0,
     ).issue(
