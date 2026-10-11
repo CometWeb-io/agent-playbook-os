@@ -677,7 +677,7 @@ class Runner:
                     raise BudgetExceeded("no run time budget remains")
                 async def invoke_and_consume():
                     raw = await self._execute_step(step, plan, state, store, control, budget)
-                    return await self._consume_runtime_output(raw, state, ss, store, step.id, invocation)
+                    return await self._consume_runtime_output(raw, state, ss, store, step.id, invocation, budget=budget)
 
                 output = await self._await_with_controls(invoke_and_consume(), timeout)
                 output = redact_secret_values(output)
@@ -732,7 +732,7 @@ class Runner:
         assert last is not None
         raise last
 
-    async def _consume_runtime_output(self, raw, state, step_state, store, step_id, invocation=None):
+    async def _consume_runtime_output(self, raw, state, step_state, store, step_id, invocation=None, *, budget=None):
         streaming = hasattr(raw, "__aiter__")
         if streaming:
             aggregate = RuntimeResult()
@@ -773,6 +773,8 @@ class Runner:
                     saw_result = True
                 # The event and snapshot are atomically committed on SQLite.
                 self._emit(store, state, f"runtime.stream.{event.type}", step_id, metadata=event.metadata)
+                if budget is not None and event.type == "usage":
+                    budget.check(state)
             if not saw_result:
                 raise StepExecutionError(f"streaming runtime for {step_id} ended without a result event")
             raw = aggregate
@@ -1231,7 +1233,7 @@ class Runner:
                     raw = await self._execute_nested_once(
                         step, params, context, plan, state, store, budget, local, parent.id, prefix
                     )
-                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation)
+                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation, budget=budget)
 
                 out = await self._await_with_controls(invoke_and_consume(), timeout)
                 out = redact_secret_values(out)
@@ -1525,7 +1527,7 @@ class Runner:
                         parent.id, prefix,
                     )
                     return await self._consume_runtime_output(
-                        raw, state, local_state, store, nested_key, invocation
+                        raw, state, local_state, store, nested_key, invocation, budget=budget
                     )
 
                 out = await self._await_with_controls(invoke_and_consume(), timeout)
@@ -1786,7 +1788,7 @@ class Runner:
                     raise BudgetExceeded("no run time budget remains")
                 async def invoke_and_consume_nested():
                     raw = await self._execute_nested_once(step, params, context, plan, state, store, budget, local, parent_id, branch)
-                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation)
+                    return await self._consume_runtime_output(raw, state, local_state, store, nested_key, invocation, budget=budget)
 
                 out = await self._await_with_controls(invoke_and_consume_nested(), timeout)
                 out = redact_secret_values(out)
