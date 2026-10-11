@@ -21,6 +21,8 @@ A signed grant binds all of the following:
 | `tenant_id`, `namespace`, `queue_name` | Prevent cross-tenant/queue reuse |
 | `work_id`, `run_id` | Prevent moving authority to a different job |
 | `plan_integrity_hash` | Bind the **exact** compiled plan, not its display name |
+| `plan_path`, `run_dir` | Prevent redirection to a different plan file or durable run directory |
+| `store_backend`, `max_attempts` | Prevent changing the approved storage/retry envelope |
 | `approved_step_ids` | Approve only named, existing review gates |
 | `not_before`, `expires_at`, `nonce` | Time-bound grant with an explicit issue ID |
 | `signature` | HMAC-SHA256 over the canonical JSON payload |
@@ -34,7 +36,9 @@ It compares signatures using constant-time equality. An incomplete, modified,
 expired or incorrectly scoped grant is rejected before creating the run state.
 
 Grant-bearing CLI output is redacted, and arbitrary queue metadata is **not**
-copied into durable run state. Instead, a SHA-256 digest of the submitted
+copied into durable run state. Enqueue validates every signed path/backend field
+before accepting a grant; worker verifies the HMAC and the complete scope.
+Unsigned or overlarge grant files are not interpreted as authority. Instead, a SHA-256 digest of the submitted
 metadata is retained as a provenance pointer.
 
 ## Recommended issuance flow
