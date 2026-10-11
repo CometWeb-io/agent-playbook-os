@@ -112,7 +112,7 @@ class SecretResolverChain:
 
 
 def is_secret_reference(value: Any) -> bool:
-    return isinstance(value, str) and value.startswith(("env://", "secret://", "file-secret://"))
+    return isinstance(value, str) and value.startswith(("env://", "secret://", "file-secret://", "tenant-secret://"))
 
 
 def resolve_secret_references(value: Any, resolver: SecretResolverChain | SecretResolver | None) -> Any:
