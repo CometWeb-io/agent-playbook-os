@@ -182,3 +182,18 @@ def test_anthropic_max_tokens_and_model_are_fingerprinted():
     def fp(runtime):
         return canonical_hash([x.model_dump(mode="json") for x in runtime.capabilities().list()])
     assert len({fp(a), fp(b), fp(c)}) == 3
+
+
+@pytest.mark.parametrize("field", ["cost_usd", "wall_time_seconds"])
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), float("-inf")])
+def test_usage_rejects_nonfinite_numeric_values(field, nonfinite):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        UsageMetrics(**{field: nonfinite})
+
+
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), float("-inf")])
+def test_integrity_hash_rejects_noncanonical_floats(nonfinite):
+    from agent_playbook_os.integrity import canonical_hash
+    with pytest.raises(ValueError):
+        canonical_hash({"metric": nonfinite})
