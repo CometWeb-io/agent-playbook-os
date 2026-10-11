@@ -85,7 +85,11 @@ class Runner:
         self._seq += 1
         safe_data = redact(data)
         event = Event(seq=self._seq, run_id=state.run_id, type=event_type, step_id=step_id, data=safe_data)
-        store.append_event(event)
+        commit_transition = getattr(store, "append_event_with_state", None)
+        if callable(commit_transition):
+            commit_transition(event, state)
+        else:
+            store.append_event(event)
         try:
             self.telemetry.emit(event.model_dump(mode="json"))
         except Exception:
