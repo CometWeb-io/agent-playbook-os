@@ -171,7 +171,10 @@ async def test_real_worker_executes_only_when_grant_matches_all_scope_fields(tmp
     path.write_text(plan.model_dump_json(), encoding="utf-8")
     run_dir = tmp_path / "run"
     queue = SQLiteWorkQueue(tmp_path / "queue.sqlite3")
-    request = submission(plan_path=str(path), run_dir=str(run_dir))
+    request = submission(
+        plan_path=str(path), run_dir=str(run_dir),
+        required_capabilities=required_capabilities_for_plan(plan),
+    )
     request.metadata = {"approval_grant": signed_payload(item=request, plan=plan)}
     queue.enqueue(request)
     runtime = ReferenceRuntime()
@@ -198,7 +201,10 @@ async def test_forged_grant_causes_no_execution_and_no_run_state(tmp_path):
     path.write_text(plan.model_dump_json(), encoding="utf-8")
     run_dir = tmp_path / "run"
     queue = SQLiteWorkQueue(tmp_path / "queue.sqlite3")
-    request = submission(plan_path=str(path), run_dir=str(run_dir))
+    request = submission(
+        plan_path=str(path), run_dir=str(run_dir),
+        required_capabilities=required_capabilities_for_plan(plan),
+    )
     malicious = signed_payload(item=request, plan=plan)
     malicious["actor"] = "forged-admin"
     request.metadata = {"approval_grant": malicious}
