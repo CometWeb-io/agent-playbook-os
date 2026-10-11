@@ -310,9 +310,18 @@ is rejected, and appending new digested records to an old cassette is refused.
 Start a new cassette when upgrading. The unsupported-object fallback no longer
 persists raw `repr()` text, which could contain credentials.
 
-**Important limitation:** SHA-256 chaining provides accidental-corruption
-and inconsistency detection, **not tamper-proof authenticity**. Anyone who can
-rewrite the cassette can recompute the hashes. High-assurance evidence requires
-a separately managed signature/HMAC key, independent trust anchor, retention
-policy and externally attested artifact digest. Avoid storing raw model
-credentials or PII in recorded outputs; telemetry redaction is best effort.
+**Authenticated mode:** for evidence that must resist unauthorized
+rewrites, configure the SDK with the same separately managed signing key:
+`RecordingRuntime(inner, path, integrity_key=key)` and
+`ReplayRuntime(path, integrity_key=key)`. A key must be at least 32 bytes.
+Each record is then authenticated with HMAC-SHA256 over its canonical digest.
+Wrong or missing keys, unauthenticated append attempts and attempts to
+downgrade to legacy records are rejected.
+
+**Important limitation:** plain SHA-256 chains without this optional HMAC
+provide accidental-corruption and inconsistency detection, **not authenticity**.
+HMAC protects only while its key is kept outside the cassette and remains
+uncompromised. High-assurance evidence also needs independent key custody,
+rotation, an external trust anchor, anti-rollback/version checkpoints, and
+retention controls. Avoid storing raw credentials or PII; telemetry redaction
+is best effort.
