@@ -677,3 +677,15 @@ can no longer silently reuse an existing ID with different content.
 Contradictory evidence fails closed; an affected material invocation is
 marked `UNKNOWN` until independently reconciled. Exact duplicate
 records remain idempotent. See [runtime hardening](docs/RUNTIME_HARDENING_2026.md).
+
+### Crash-safe material result recovery
+
+A `SUCCEEDED` provider invocation is not equivalent to a durably
+`COMPLETED` step. If a crash happens between those checkpoints, a
+material action is now blocked from automatic re-dispatch on resume.
+A trusted operator must reconcile the original output against its
+persisted digest; unchanged but schema-invalid results cannot be
+silently accepted. The gate also applies inside parallel, foreach and
+while steps and during distributed worker recovery. See
+[runtime hardening](docs/RUNTIME_HARDENING_2026.md) for the exact
+contract and fault-injection tests.
