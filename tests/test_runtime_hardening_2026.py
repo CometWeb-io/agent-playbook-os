@@ -397,3 +397,30 @@ async def test_sqlite_run_events_checkpoint_state_atomically(tmp_path):
     assert store.read_events()[-1]["type"] == "test.injected"
     assert store.load_state().metadata["new_metadata"] == "must-not-commit"
     assert store.verify_event_chain() == (True, None)
+
+
+@pytest.mark.asyncio
+async def test_local_output_schema_is_pinned_at_compile_time(tmp_path):
+    import json
+    folder = tmp_path / "sources"
+    folder.mkdir()
+    schema = folder / "result.json"
+    schema.write_text(json.dumps({
+        "type": "object", "required": ["ok"],
+        "properties": {"ok": {"type": "boolean"}}, "additionalProperties": False
+    }), encoding="utf-8")
+    source = folder / "main.yaml"
+    source.write_text("# source", encoding="utf-8")
+    playbook = pb([{"id": "x", "type": "action", "action": "set",
+                    "with": {"value": {"ok": True}}, "output_schema": "result.json"}])
+    original_hash = playbook.spec.steps[0].output_schema_hash
+    plan = Compiler().compile(playbook, source_path=str(source))
+    assert plan.steps[0].spec.output_schema_hash.startswith("sha256:")
+    assert original_hash is playbook.spec.steps[0].output_schema_hash is None
+
+    good = await Runner(ReferenceRuntime()).run(plan, tmp_path / "good")
+    assert good.status == RunStatus.COMPLETED
+    schema.write_text(json.dumps({"type": "string"}), encoding="utf-8")
+    stale = await Runner(ReferenceRuntime()).run(plan, tmp_path / "stale")
+    assert stale.status == RunStatus.FAILED
+    assert "hash mismatch" in stale.steps["x"].error
