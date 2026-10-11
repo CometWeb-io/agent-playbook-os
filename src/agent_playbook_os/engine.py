@@ -12,7 +12,7 @@ from .schema_resolver import validate_output_offline, MAX_SCHEMA_BYTES
 from .budgets import BudgetController
 from .compiler import Compiler
 from .errors import (
-    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ProviderEvidenceConflict, StreamProtocolError, ReconciliationRequired, SideEffectOutcomeUnknown, NoSideEffectPerformed, StepExecutionError
+    ApprovalRequired, BudgetExceeded, CancellationRequested, CapabilityNegotiationError, ExternalExecutionRequired, IntegrityError, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ProviderEvidenceConflict, StreamProtocolError, ReconciliationRequired, SideEffectOutcomeUnknown, NoSideEffectPerformed, StepExecutionError
 )
 from .expressions import render, safe_eval
 from .integrity import compiled_plan_integrity
@@ -763,11 +763,21 @@ class Runner:
         might carry a credential or customer-controlled content.
         """
         material = step.side_effects in {"local", "external", "destructive"}
-        if material and not isinstance(exc, NoSideEffectPerformed):
-            return SideEffectOutcomeUnknown(
-                f"{type(exc).__name__}: material outcome unconfirmed; reconcile before retry"
-            ), True
-        return exc, False
+        if not material:
+            return exc, False
+        if isinstance(exc, (NoSideEffectPerformed, ExternalExecutionRequired)):
+            # These are explicit kernel/host signals that dispatch never
+            # happened. Preserve their diagnostic messages.
+            return exc, False
+        if isinstance(exc, (
+            SideEffectOutcomeUnknown, ProviderEvidenceConflict,
+            ReconciliationRequired, IntegrityError, ProviderRefusal,
+        )):
+            # Already classified or non-retryable; do not discard evidence.
+            return exc, True
+        return SideEffectOutcomeUnknown(
+            f"{type(exc).__name__}: material outcome unconfirmed; reconcile before retry"
+        ), True
 
     async def _execute_with_retry(self, step, plan, state, store, budget: BudgetController):
         attempts = max(1, step.retry.max_attempts)
