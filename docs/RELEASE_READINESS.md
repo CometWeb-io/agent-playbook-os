@@ -52,3 +52,14 @@ model configuration hashes.
 - These controls have unit/regression evidence. Identity infrastructure,
   multi-host production storage, full live-provider adapters, real human
   authentication and comparative quality evals remain **BLOCKED**.
+
+### Material exception contract (11 October 2026)
+
+The reference engine now classifies unqualified exceptions after a material
+dispatch as `UNKNOWN` rather than a definitively failed no-effect call.
+Before releasing host adapters, verify that their `NoSideEffectPerformed`
+signals are based on authoritative non-execution evidence, and that
+`supports_idempotency(step)` means real provider-side deduplication with
+the actual nonempty rendered key. Network errors must remain ambiguous
+unless independently reconciled. The new local regression cases are not
+a substitute for provider-native chaos and live idempotency tests.
