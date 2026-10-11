@@ -179,6 +179,79 @@ async def test_tenant_secret_ref_is_resolved_and_redacted(tmp_path):
     assert "demo-secret" not in (root / "state.json").read_text(encoding="utf-8")
 
 
+
+@pytest.mark.asyncio
+async def test_strict_preflight_rejects_unclassified_host_action(tmp_path):
+    plan = Compiler().compile(pb([{"id": "custom", "type": "action", "action": "custom"}]))
+    calls = []
+    runtime = CallableRuntime(actions={"custom": lambda step, inputs, context: calls.append("called")})
+    from agent_playbook_os.errors import CapabilityNegotiationError
+    with pytest.raises(CapabilityNegotiationError, match="unclassified"):
+        await Runner(runtime, enforce_capabilities=True).run(plan, tmp_path / "blocked")
+    assert calls == []
+    assert not (tmp_path / "blocked").exists()
+
+
+@pytest.mark.asyncio
+async def test_strict_preflight_accepts_classified_action(tmp_path):
+    plan = Compiler().compile(pb([{"id": "custom", "type": "action", "action": "custom"}]))
+    runtime = CallableRuntime(
+        actions={"custom": lambda step, inputs, context: {"ok": True}},
+        action_side_effects={"custom": "none"},
+    )
+    state = await Runner(runtime, enforce_capabilities=True).run(plan, tmp_path / "allowed")
+    assert state.status == RunStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_worker_refuses_foreign_completed_run(tmp_path):
+    from agent_playbook_os.distributed import DistributedWorker, required_capabilities_for_plan, WorkStatus
+    plan = Compiler().compile(pb([{"id": "set", "type": "action", "action": "set"}]))
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(plan.model_dump_json(), encoding="utf-8")
+    run_dir = tmp_path / "run"
+    await Runner(ReferenceRuntime()).run(plan, run_dir)
+    q = SQLiteWorkQueue(tmp_path / "queue.sqlite3")
+    q.enqueue(WorkSubmission(
+        work_id="foreign", run_id="submitted-run", plan_path=str(plan_path),
+        run_dir=str(run_dir), required_capabilities=required_capabilities_for_plan(plan),
+    ))
+    runtime = ReferenceRuntime()
+    worker = DistributedWorker(
+        queue=q, runtime=runtime,
+        runner_factory=lambda **kwargs: Runner(runtime),
+        worker_id="worker",
+    )
+    result = (await worker.run_once())[0]
+    assert result.error is not None
+    assert "submission identity" in result.error
+    assert q.get("foreign").status != WorkStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_recorded_stream_redacts_secret_without_corrupting_token_counts(tmp_path):
+    from agent_playbook_os.recording import RecordingRuntime, ReplayRuntime
+    from agent_playbook_os.models import RuntimeStreamEvent, UsageMetrics
+
+    async def handler(step, inputs, context):
+        async def generator():
+            yield RuntimeStreamEvent(type="usage", usage=UsageMetrics(input_tokens=5, output_tokens=3))
+            yield RuntimeStreamEvent(type="result", value={"message": SecretValue("canary", "secret://test")})
+        return generator()
+
+    plan = Compiler().compile(pb([{"id": "s", "type": "action", "action": "stream"}],
+                                 outputs={"message": "{{ steps.s.output.message }}"}))
+    cassette = tmp_path / "stream.jsonl"
+    original = await Runner(RecordingRuntime(
+        CallableRuntime(actions={"stream": handler}), cassette
+    )).run(plan, tmp_path / "one")
+    replayed = await Runner(ReplayRuntime(cassette)).run(plan, tmp_path / "two")
+    assert original.status == replayed.status == RunStatus.COMPLETED
+    assert original.outputs == replayed.outputs == {"message": "<redacted:secret>"}
+    assert original.usage.input_tokens == replayed.usage.input_tokens == 5
+    assert "canary" not in cassette.read_text(encoding="utf-8")
+
+
 def _submission(n):
     return WorkSubmission(work_id=f"job-{n}", run_id=f"run-{n}",
                           plan_path="/tmp/plan", run_dir=f"/tmp/run-{n}",
