@@ -689,3 +689,13 @@ silently accepted. The gate also applies inside parallel, foreach and
 while steps and during distributed worker recovery. See
 [runtime hardening](docs/RUNTIME_HARDENING_2026.md) for the exact
 contract and fault-injection tests.
+
+### Material failures and safe retries
+
+A generic exception after a material call is now **UNKNOWN**, not proof
+that the call failed without effect. Automatic retries require an
+adapter-proven idempotency contract and a nonempty resolved key. Adapters
+that can prove a request had no effect may raise `NoSideEffectPerformed`;
+ordinary connection or HTTP errors are not such proof. This behavior
+is covered by injected post-effect failures across top-level and nested
+workflows. See [runtime hardening](docs/RUNTIME_HARDENING_2026.md).
