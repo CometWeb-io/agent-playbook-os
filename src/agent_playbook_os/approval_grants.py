@@ -44,6 +44,10 @@ class SignedApprovalGrant(BaseModel):
     work_id: str = Field(min_length=1, max_length=256)
     run_id: str = Field(min_length=1, max_length=256)
     plan_integrity_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    plan_path: str = Field(min_length=1, max_length=2048)
+    run_dir: str = Field(min_length=1, max_length=2048)
+    store_backend: str = Field(min_length=1, max_length=64)
+    max_attempts: int = Field(ge=1, le=100)
     approved_step_ids: list[str] = Field(min_length=1, max_length=128)
     not_before: int = Field(ge=0)
     expires_at: int = Field(ge=0)
@@ -136,6 +140,10 @@ class HMACApprovalAuthorizer:
             "work_id": submission.work_id,
             "run_id": submission.run_id,
             "plan_integrity_hash": plan.integrity_hash,
+            "plan_path": submission.plan_path,
+            "run_dir": submission.run_dir,
+            "store_backend": submission.store_backend,
+            "max_attempts": submission.max_attempts,
             "approved_step_ids": sorted(approved_step_ids),
             "not_before": now,
             "expires_at": now + ttl_seconds,
@@ -184,6 +192,10 @@ class HMACApprovalAuthorizer:
             "namespace": item.namespace,
             "queue_name": item.queue_name,
             "plan_integrity_hash": plan.integrity_hash,
+            "plan_path": item.plan_path,
+            "run_dir": item.run_dir,
+            "store_backend": item.store_backend,
+            "max_attempts": item.max_attempts,
         }
         for name, expected_value in expected_scope.items():
             if getattr(grant, name) != expected_value:
