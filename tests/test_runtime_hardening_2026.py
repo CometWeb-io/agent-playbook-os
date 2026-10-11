@@ -554,3 +554,27 @@ async def test_inspection_exposes_continued_failure_without_claiming_business_su
     assert "completed_with_failed_steps" in report["risk_flags"]
     assert report["requires_attention"] is True
     assert report["business_outcome_verified"] is False
+
+
+@pytest.mark.asyncio
+async def test_nonterminal_external_provider_outcome_requires_reconciliation(tmp_path):
+    from agent_playbook_os.errors import ReconciliationRequired
+    calls = []
+    def create(**kwargs):
+        calls.append(kwargs)
+        return {"id": "resp_partial", "status": "incomplete", "output_text": "partial"}
+    client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    runtime = OpenAIResponsesRuntime(client, model="demo")
+    plan = Compiler().compile(pb([
+        {"id": "remote", "type": "agent", "side_effects": "external",
+         "idempotency_key": "stable", "retry": {"max_attempts": 2},
+         "on_fail": "skip"}
+    ], policy={"require_approval_for": []}))
+    root = tmp_path / "run"
+    result = await Runner(runtime).run(plan, root)
+    assert result.status == RunStatus.FAILED
+    assert result.invocations[0].status == InvocationStatus.UNKNOWN
+    assert len(calls) == 1
+    with pytest.raises(ReconciliationRequired):
+        await Runner(runtime).run(plan, root, resume=True)
+    assert len(calls) == 1
