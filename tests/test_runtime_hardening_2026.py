@@ -361,3 +361,39 @@ def test_queue_ack_rejects_unknown_run_status(tmp_path):
     with pytest.raises(ValueError, match="nonterminal"):
         q.ack(claim.work_id, claim.claim_token, claim.fence, {"status": "RUNNING"})
     assert q.get(claim.work_id).status == "CLAIMED"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_run_events_checkpoint_state_atomically(tmp_path):
+    import sqlite3
+    from agent_playbook_os.models import Event
+
+    plan = Compiler().compile(pb([{"id": "step", "type": "action", "action": "set"}]))
+    root = tmp_path / "run"
+    state = await Runner(ReferenceRuntime(), store_factory=SQLiteRunStore).run(plan, root)
+    store = SQLiteRunStore(root)
+    before_state = store.load_state().model_dump(mode="json")
+    before_events = store.read_events()
+    assert before_events
+    assert store.verify_event_chain() == (True, None)
+    state.metadata["new_metadata"] = "must-not-commit"
+
+    # Simulate a DB fault after entering the event/state transaction.
+    with sqlite3.connect(store.db_path) as db:
+        db.execute(
+            "CREATE TRIGGER block_checkpoint BEFORE INSERT ON events "
+            "BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END;"
+        )
+    event = Event(seq=before_events[-1]["seq"] + 1, run_id=state.run_id, type="test.injected")
+    with pytest.raises(sqlite3.IntegrityError, match="injected checkpoint failure"):
+        store.append_event_with_state(event, state)
+    assert store.read_events() == before_events
+    assert store.load_state().model_dump(mode="json") == before_state
+    assert store.verify_event_chain() == (True, None)
+
+    with sqlite3.connect(store.db_path) as db:
+        db.execute("DROP TRIGGER block_checkpoint")
+    store.append_event_with_state(event, state)
+    assert store.read_events()[-1]["type"] == "test.injected"
+    assert store.load_state().metadata["new_metadata"] == "must-not-commit"
+    assert store.verify_event_chain() == (True, None)
