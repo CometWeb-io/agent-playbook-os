@@ -505,7 +505,10 @@ Two **explicit** exceptions to the no-repeat rule remain:
    confirms idempotent semantics through `supports_idempotency(step)`.
    A configured but empty key is insufficient. The adapter must
    guarantee that repeated dispatch using that key cannot duplicate
-   effects; the kernel cannot prove this remotely.
+   effects; the kernel cannot prove this remotely. An explicit
+   `retry.retry_on` allowlist is respected even when idempotency is
+   declared: list `SideEffectOutcomeUnknown` if that exact class is
+   intentionally retryable.
 
 Classified provider continuation, evidence conflicts, integrity errors
 and explicit no-dispatch kernel failures keep their intended semantics.
