@@ -195,3 +195,47 @@ async def test_keyed_cassette_distinguishes_raw_password_values(tmp_path):
     assert await replay.execute_action(STEP, {"password": "first-value"}, {}) == {"ok": True}
     assert "first-value" not in cassette.read_text()
     assert "second-value" not in cassette.read_text()
+
+
+@pytest.mark.asyncio
+async def test_cli_key_env_enables_authenticated_secret_aware_recording_and_replay(tmp_path, monkeypatch):
+    from agent_playbook_os.cli import build_parser, make_runtime
+    monkeypatch.setenv("APBOS_TEST_CASSETTE_KEY", "R" * 32)
+    parser = build_parser()
+    cassette = tmp_path / "secret.jsonl"
+    record_args = parser.parse_args([
+        "run", "example.yaml", "--record-cassette", str(cassette),
+        "--cassette-key-env", "APBOS_TEST_CASSETTE_KEY",
+    ])
+    recorder = make_runtime(record_args)
+    assert isinstance(recorder, RecordingRuntime)
+    assert recorder.integrity_key == b"R" * 32
+    step = StepSpec(id="step", type="action", action="set")
+    secret_input = {"value": SecretValue("secret-cassette-value", "secret://ONE")}
+    recorded = await recorder.execute_action(step, secret_input, {})
+    assert recorded == "secret-cassette-value"
+    assert "secret-cassette-value" not in cassette.read_text()
+    replay_args = parser.parse_args([
+        "run", "example.yaml", "--replay-cassette", str(cassette),
+        "--cassette-key-env", "APBOS_TEST_CASSETTE_KEY",
+    ])
+    reader = make_runtime(replay_args)
+    assert isinstance(reader, ReplayRuntime)
+    assert await reader.execute_action(step, secret_input, {}) == "<redacted:secret>"
+
+
+def test_cli_refuses_key_env_without_cassette_or_with_short_key(tmp_path, monkeypatch):
+    from agent_playbook_os.cli import build_parser, make_runtime
+    parser = build_parser()
+    args = parser.parse_args([
+        "run", "example.yaml", "--cassette-key-env", "KEY",
+    ])
+    with pytest.raises(SystemExit, match="requires"):
+        make_runtime(args)
+    monkeypatch.setenv("KEY", "short")
+    args = parser.parse_args([
+        "run", "example.yaml", "--record-cassette", str(tmp_path / "cassette"),
+        "--cassette-key-env", "KEY",
+    ])
+    with pytest.raises(SystemExit, match="shorter than 32"):
+        make_runtime(args)
