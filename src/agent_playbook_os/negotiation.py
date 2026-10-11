@@ -78,6 +78,21 @@ def negotiate_runtime(plan: CompiledPlan, runtime) -> NegotiationReport:
     requirements = requirements_for_plan(plan)
     missing: list[str] = []
     warnings: list[str] = []
+    levels = {"none": 0, "local": 1, "external": 2, "destructive": 3}
+    by_id = {item.id: item for item in available_items}
+    for step in _walk([x.spec for x in plan.steps]):
+        if step.type != "action":
+            continue
+        capability = by_id.get(f"action:{step.action}")
+        if capability is None:
+            continue
+        if capability.metadata.get("side_effects_declared") is False:
+            missing.append(f"action-effects:{step.id}:unclassified")
+        elif (
+            levels[step.side_effects] < levels[capability.side_effects]
+            and not (getattr(runtime, "dry_run", False) and capability.supports_dry_run)
+        ):
+            missing.append(f"action-effects:{step.id}:downgrade")
     for req in requirements:
         supported = req.id in ids
         if req.id.startswith("kind:"):
