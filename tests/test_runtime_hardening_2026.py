@@ -123,6 +123,38 @@ async def test_subplaybook_inherits_parent_policy(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_subplaybook_does_not_persist_resolved_secret(tmp_path):
+    from agent_playbook_os.secret_resolver import MappingSecretResolver
+    folder = tmp_path / "p"
+    folder.mkdir()
+    (folder / "child.yaml").write_text(
+        "apiVersion: playbook.agent/v1alpha1\nkind: Playbook\n"
+        "metadata:\n  id: child\n  version: 0.1.0\n  description: child\n"
+        "spec:\n  inputs:\n    key:\n      type: string\n      sensitive: true\n      required: true\n"
+        "  steps:\n  - id: echo\n    type: action\n    action: set\n"
+        "    with:\n      value: '{{ inputs.key }}'\n",
+        encoding="utf-8",
+    )
+    source = folder / "parent.yaml"
+    source.write_text("# source anchor", encoding="utf-8")
+    parent = pb([{
+        "id": "child", "type": "playbook", "playbook": "child.yaml",
+        "with": {"key": "{{ inputs.key }}"},
+    }], inputs={"key": {"type": "string", "sensitive": True, "required": True}})
+    plan = Compiler().compile(parent, {"key": "secret://KEY"}, source_path=str(source))
+    root = tmp_path / "run"
+    state = await Runner(
+        ReferenceRuntime(),
+        secret_resolver=SecretResolverChain([MappingSecretResolver({"KEY": "child-canary"})]),
+    ).run(plan, root)
+    assert state.status == RunStatus.COMPLETED
+    child_plan = (root / "subruns" / "child" / "plan.json").read_text(encoding="utf-8")
+    child_state = (root / "subruns" / "child" / "state.json").read_text(encoding="utf-8")
+    assert "child-canary" not in child_plan + child_state
+    assert "secret://KEY" in child_plan
+
+
+@pytest.mark.asyncio
 async def test_child_approval_resumes_same_durable_run(tmp_path):
     folder = tmp_path / "playbooks"
     folder.mkdir()
