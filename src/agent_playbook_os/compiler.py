@@ -11,6 +11,7 @@ from .integrity import canonical_hash, compiled_plan_integrity, compiled_plan_se
 from .models import CompiledPlan, CompiledStep, Playbook, SkillLockEntry, StepSpec
 from .policy import PolicyEngine, compose_policies
 from .skills import SkillResolver
+from .loader import load_playbook
 
 _STEP_REF = re.compile(r"\bsteps\.([A-Za-z0-9_-]+)\b")
 
@@ -51,6 +52,7 @@ class Compiler:
         steps = [step.model_copy(deep=True) for step in playbook.spec.steps]
         if self.pin_local_schemas and source_path:
             self._pin_output_schemas(steps, source_path)
+        child_locks = self._pin_subplaybooks(steps, source_path) if source_path else {}
 
         all_steps = list(self._walk_steps(steps))
         if len(all_steps) > playbook.spec.execution.max_steps:
@@ -96,12 +98,56 @@ class Compiler:
             steps=[CompiledStep(spec=s, ordinal=i) for i, s in enumerate(ordered)],
             outputs=playbook.spec.outputs,
             skill_lock=skill_lock,
+            subplaybook_locks=child_locks,
             source_path=str(Path(source_path).resolve()) if source_path else None,
         )
         PolicyEngine(plan.policy).check_plan(plan)
         plan.semantic_hash = compiled_plan_semantic_hash(plan)
         plan.integrity_hash = compiled_plan_integrity(plan)
         return plan
+
+    def _pin_subplaybooks(self, steps: list[StepSpec], source_path: str) -> dict[str, str]:
+        """Recursively bind all child source content before plan approval.
+
+        Relative paths are portable across clone locations. Child imports must
+        remain below their immediate parent's directory. Reject cycles,
+        symlinks escaping the trusted tree and unbounded package graphs.
+        """
+        root = Path(source_path).resolve().parent
+        locks: dict[str, str] = {}
+        visited: set[Path] = set()
+
+        def scan(tree: list[StepSpec], parent_dir: Path, stack: tuple[Path, ...]) -> None:
+            for step in self._walk_steps(tree):
+                if step.type != "playbook":
+                    continue
+                child = (parent_dir / step.playbook).resolve()
+                if not child.is_relative_to(parent_dir) or not child.is_relative_to(root):
+                    raise CompileError(
+                        f"subplaybook {step.id} escapes its parent playbook directory"
+                    )
+                if child in stack:
+                    raise CompileError(f"cyclic subplaybook import: {child.relative_to(root)}")
+                if len(stack) >= 8:
+                    raise CompileError("subplaybook import depth exceeds 8")
+                if child in visited:
+                    continue
+                if len(visited) >= 64:
+                    raise CompileError("subplaybook graph exceeds 64 distinct files")
+                try:
+                    nested = load_playbook(child)
+                except Exception as exc:
+                    raise CompileError(
+                        f"cannot pin subplaybook {step.id} at {child.relative_to(root)}: {exc}"
+                    ) from exc
+                visited.add(child)
+                locks[child.relative_to(root).as_posix()] = canonical_hash(
+                    nested.model_dump(mode="json", by_alias=True)
+                )
+                scan(nested.spec.steps, child.parent, (*stack, child))
+
+        scan(steps, root, (Path(source_path).resolve(),))
+        return dict(sorted(locks.items()))
 
     def _pin_output_schemas(self, steps: list[StepSpec], source_path: str) -> None:
         base = Path(source_path).resolve().parent
