@@ -395,7 +395,9 @@ class RunStore:
             # The lease prevents concurrent writers; crash recovery still
             # must verify both files before executing material effects.
             self.save_state(state)
-            self.appen    def attach_provider_receipt(
+            self.append_event(event)
+
+    def attach_provider_receipt(
         self,
         invocation_id: str,
         receipt: ProviderReceipt,
@@ -476,8 +478,6 @@ class RunStore:
                 actor=actor,
             )
             return state
-
-  return state
 
     def write_artifact(
         self,
