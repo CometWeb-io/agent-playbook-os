@@ -386,6 +386,7 @@ async def test_nested_uncertain_idempotent_invocation_can_resume(tmp_path):
                 "action": "remote",
                 "side_effects": "external",
                 "idempotency_key": "stable-key",
+                "retry": {"max_attempts": 2},
             }]
         },
     }], policy={"require_approval_for": []})
@@ -404,6 +405,9 @@ async def test_nested_uncertain_idempotent_invocation_can_resume(tmp_path):
     inv = next(x for x in state.invocations if x.step_id == nested_key)
     inv.status = inv.status.UNKNOWN
     inv.finished_at = None
+    # Model a durable STARTED invocation whose SDK guarantees deduplication.
+    # A SUCCEEDED invocation would normally clear this explicit eligibility.
+    inv.retry_eligible = True
     store.save_state(state)
     resumed = await Runner(runtime).run(plan, run_dir, resume=True)
     assert resumed.status == RunStatus.COMPLETED
