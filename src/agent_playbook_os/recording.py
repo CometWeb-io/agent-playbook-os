@@ -46,7 +46,7 @@ def _jsonable(value: Any) -> Any:
 
 _KEYED_INPUT_SCHEME = "hmac-sha256:inputs-v1"
 _REDACTED_INPUT_SCHEME = "sha256:redacted-v1"
-_INPUT_CONTEXT = b"agent-playbook-os/input-fingerprint/v1\\x00"
+_INPUT_CONTEXT = b"agent-playbook-os/input-fingerprint/v1|"
 
 
 def _contains_secret(value: Any) -> bool:
