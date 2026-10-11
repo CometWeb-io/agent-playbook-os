@@ -37,7 +37,7 @@ async def test_recording_chain_roundtrip_and_tamper_detection(tmp_path):
     replay = await Runner(ReplayRuntime(cassette)).run(compiled, tmp_path / "replay")
     assert replay.status == RunStatus.COMPLETED
 
-    rows[0]["output"]["value"] = "changed"
+    rows[0]["output"] = "changed"
     cassette.write_text("\n".join(json.dumps(x) for x in rows) + "\n")
     with pytest.raises(IntegrityError, match="record hash mismatch"):
         ReplayRuntime(cassette)
