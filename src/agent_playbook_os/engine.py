@@ -745,9 +745,11 @@ class Runner:
         if isinstance(exc, (BudgetExceeded, IntegrityError, CancellationRequested, LeaseConflict, ProviderContinuationRequired, ProviderRefusal, ReconciliationRequired)):
             return False
         if isinstance(exc, SideEffectOutcomeUnknown):
-            # Both the resolved actual key and a runtime-owned declaration
-            # of provider idempotency are necessary for safe retry.
-            return bool(resolved_key and self._runtime_supports_idempotency(step))
+            # Both the resolved actual key and runtime-owned proof of
+            # provider idempotency are required. An explicit retry_on
+            # allowlist remains authoritative even for ambiguous outcomes.
+            if not resolved_key or not self._runtime_supports_idempotency(step):
+                return False
         if not step.retry.retry_on:
             return True
         names = {cls.__name__ for cls in type(exc).mro()}
