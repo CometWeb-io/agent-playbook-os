@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+import re
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -146,6 +147,10 @@ class StepSpec(StrictModel):
             raise ValueError("branch step requires at least one case")
         if self.type == "parallel" and not self.branches:
             raise ValueError("parallel step requires branches")
+        if self.type == "parallel":
+            for name in self.branches:
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name):
+                    raise ValueError(f"unsafe parallel branch name: {name!r}")
         if self.type == "foreach":
             if self.items is None:
                 raise ValueError("foreach step requires items")
