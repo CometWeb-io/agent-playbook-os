@@ -77,7 +77,7 @@ async def test_cancelling_runner_task_also_cancels_its_active_command(tmp_path):
     playbook = Playbook.model_validate({
         "apiVersion": "playbook.agent/v1alpha1", "kind": "Playbook",
         "metadata": {"id": "cancel", "version": "0.1.0", "description": "runner cancellation"},
-        "spec": {"steps": [{"id": "cmd", "type": "action", "action": "command", "with": {"argv": [sys.executable, "-c", code]}}]},
+        "spec": {"steps": [{"id": "cmd", "type": "action", "action": "command", "side_effects": "local", "with": {"argv": [sys.executable, "-c", code]}}]},
     })
     task = asyncio.create_task(Runner(runtime()).run(Compiler().compile(playbook), tmp_path / "run"))
     try:
