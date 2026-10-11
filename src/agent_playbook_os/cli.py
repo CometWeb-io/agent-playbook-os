@@ -845,6 +845,8 @@ def cmd_queue_enqueue(args):
         metadata = json.loads(args.metadata)
         if not isinstance(metadata, dict):
             raise SystemExit("--metadata must decode to an object")
+    # The plan digest is authoritative, not provided by arbitrary --metadata.
+    metadata["submitted_plan_hash"] = plan.integrity_hash
     submission = WorkSubmission(
         work_id=args.work_id or str(uuid4()), queue_name=args.queue_name, tenant_id=args.tenant, namespace=args.namespace,
         run_id=run_id, plan_path=str(plan_path), run_dir=str(run_dir), store_backend=args.store,
