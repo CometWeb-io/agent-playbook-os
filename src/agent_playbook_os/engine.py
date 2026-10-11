@@ -586,12 +586,12 @@ class Runner:
             except Exception as exc:
                 ss.error = f"{type(exc).__name__}: {exc}"
                 ss.finished_at = now()
-                if step.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if step.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     ss.status = StepStatus.SKIPPED
                     self._emit(store, state, "step.skipped", step.id, reason=ss.error)
                     store.save_state(state)
                     continue
-                if step.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if step.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     ss.status = StepStatus.FAILED
                     self._emit(store, state, "step.failed_continued", step.id, error=ss.error)
                     store.save_state(state)
@@ -1136,13 +1136,13 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
                     self._emit(store, state, "foreach.step.skipped", key, parent=parent.id, index=index, reason=err)
                     continue
-                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1405,7 +1405,7 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1414,7 +1414,7 @@ class Runner:
                         parent=parent.id, iteration=iteration, reason=err,
                     )
                     continue
-                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
@@ -1683,13 +1683,13 @@ class Runner:
                 err = f"{type(exc).__name__}: {exc}"
                 local_state.error = err
                 local_state.finished_at = now()
-                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if nested.on_fail == "skip" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.SKIPPED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
                     self._emit(store, state, "parallel.step.skipped", key, parent=parent.id, branch=branch, reason=err)
                     continue
-                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict)):
+                if nested.on_fail == "continue" and not isinstance(exc, (BudgetExceeded, IntegrityError, SideEffectOutcomeUnknown, ReconciliationRequired, LeaseConflict, ProviderContinuationRequired, ProviderRefusal)):
                     local_state.status = StepStatus.FAILED
                     local[nested.id] = self._local_view(local_state)
                     store.save_state(state)
