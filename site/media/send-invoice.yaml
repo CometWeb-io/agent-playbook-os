@@ -1,0 +1,24 @@
+apiVersion: playbook.agent/v1alpha1
+kind: Playbook
+metadata:
+  id: send-invoice
+  version: 0.1.0
+  description: Stand-in for an external call that is interrupted mid-flight.
+spec:
+  inputs:
+    customer: {type: string, required: true}
+  steps:
+    - id: draft
+      type: action
+      action: set
+      with:
+        value: "Invoice for {{ inputs.customer }}"
+    - id: send
+      type: action
+      action: sleep
+      needs: [draft]
+      side_effects: external
+      with:
+        seconds: 6
+  outputs:
+    sent: "{{ steps.send.output }}"

@@ -11,7 +11,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_PARTS = {".git", ".pytest_cache", "__pycache__", ".playbook-runs", "dist", "build",
-                  ".dist", ".venv", ".superpowers"}
+                  ".dist", ".venv", ".superpowers", "site", "_site"}
 EXCLUDED_SUFFIXES = {".pyc", ".zip"}
 ZIP_EPOCH_MIN = 315532800  # 1980-01-01; ZIP timestamps cannot represent earlier dates.
 
