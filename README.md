@@ -1,5 +1,8 @@
 # Agent Playbook OS
 
+[![CI](https://github.com/CometWeb-io/agent-playbook-os/actions/workflows/ci.yml/badge.svg)](https://github.com/CometWeb-io/agent-playbook-os/actions/workflows/ci.yml)
+[![Website](https://img.shields.io/badge/website-cometweb--io.github.io%2Fagent--playbook--os-05F29B)](https://cometweb-io.github.io/agent-playbook-os/)
+
 A provider-neutral **control plane for reliable AI work**.
 
 Agent Playbook OS lets one primary operator compile and execute versioned playbooks across reusable skills, deterministic actions, policy gates, human approvals and optional isolated subagents — without turning every responsibility into a separate autonomous agent.
