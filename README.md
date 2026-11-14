@@ -1,7 +1,7 @@
 # Agent Playbook OS
 
 [![CI](https://github.com/CometWeb-io/agent-playbook-os/actions/workflows/ci.yml/badge.svg)](https://github.com/CometWeb-io/agent-playbook-os/actions/workflows/ci.yml)
-[![Website](https://img.shields.io/badge/website-cometweb--io.github.io%2Fagent--playbook--os-05F29B)](https://cometweb-io.github.io/agent-playbook-os/)
+[![Website](https://img.shields.io/badge/website-agent--playbook--os.cometweb.io-05F29B)](https://agent-playbook-os.cometweb.io/)
 
 A provider-neutral **control plane for reliable AI work**.
 
